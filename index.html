@@ -7075,6 +7075,16 @@ const FirebaseSync = {
                     cloudTrips.push(doc.data());
                 });
 
+                const localTrips = TransportDB.getTrips();
+                
+                // Auto-upload any local trips that were saved on this device previously but aren't in cloud yet
+                localTrips.forEach(lt => {
+                    if (!cloudTrips.some(ct => ct.id === lt.id)) {
+                        this.syncTrip(lt);
+                        cloudTrips.push(lt);
+                    }
+                });
+
                 if (cloudTrips.length > 0) {
                     // Sort descending by checkInTime
                     cloudTrips.sort((a, b) => new Date(b.checkInTime) - new Date(a.checkInTime));
@@ -7087,27 +7097,39 @@ const FirebaseSync = {
                     }
                 }
             }, err => {
-                console.warn('[FirebaseSync] Snapshot listener warning:', err);
+                console.error('[FirebaseSync] Snapshot listener error:', err);
+                if (err.code === 'permission-denied' && window.App) {
+                    window.App.showNotification('⚠️ Firestore Rules Notice: Please update Rules to allow read, write in Firebase Console.', 'error');
+                }
             });
-        } catch (e) {}
+        } catch (e) {
+            console.error('[FirebaseSync] Failed to attach trips listener:', e);
+        }
     },
 
     syncTrip: function(trip) {
         if (!this.isInitialized || !this.db || !trip || !trip.id) return;
-        try {
-            this.db.collection('trips').doc(trip.id).set(trip, { merge: true });
-        } catch (e) {
-            console.error('[FirebaseSync] Failed to sync trip:', e);
-        }
+        this.db.collection('trips').doc(trip.id).set(trip, { merge: true })
+            .then(() => {
+                console.log('[FirebaseSync] Successfully synced trip to cloud:', trip.id);
+            })
+            .catch(err => {
+                console.error('[FirebaseSync] Error syncing trip to cloud:', err);
+                if (err.code === 'permission-denied' && window.App) {
+                    window.App.showNotification('Firestore Permission Denied. In Firebase Console > Firestore > Rules, set "allow read, write: if true;"', 'error');
+                }
+            });
     },
 
     deleteTrip: function(tripId) {
         if (!this.isInitialized || !this.db || !tripId) return;
-        try {
-            this.db.collection('trips').doc(tripId).delete();
-        } catch (e) {
-            console.error('[FirebaseSync] Failed to delete trip in cloud:', e);
-        }
+        this.db.collection('trips').doc(tripId).delete()
+            .then(() => {
+                console.log('[FirebaseSync] Deleted trip in cloud:', tripId);
+            })
+            .catch(err => {
+                console.error('[FirebaseSync] Failed to delete trip in cloud:', err);
+            });
     },
 
     migrateLocalToCloud: async function() {
