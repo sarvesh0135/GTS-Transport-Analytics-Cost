@@ -656,19 +656,27 @@
                             </div>
                         </div>
 
-                        <!-- Meter Photo Upload / Camera Capture for Accuracy Verification -->
+                        <!-- Meter Photo: Dual Options (Live Camera vs Gallery Upload) -->
                         <div>
                             <label class="block font-semibold text-slate-300 mb-1.5">
                                 <i class="fa-solid fa-camera text-blue-400 mr-1"></i> Dashboard Meter Photo (Verification)
                             </label>
-                            <div class="flex items-center gap-3">
-                                <label class="flex-1 py-2.5 px-3 bg-slate-950 border border-dashed border-slate-700 hover:border-blue-500 rounded-xl text-center cursor-pointer transition text-slate-400 hover:text-white flex items-center justify-center gap-2">
-                                    <i class="fa-solid fa-camera text-blue-400"></i>
-                                    <i class="fa-solid fa-image text-emerald-400"></i>
-                                    <span class="text-xs">Camera / Upload Photo</span>
-                                    <input type="file" id="checkinStartPhoto" accept="image/*" onchange="App.handlePhotoUpload(this.files[0], 'start')" class="hidden">
+                            <div class="flex items-center gap-2">
+                                <!-- Option 1: Live Camera Capture -->
+                                <label class="flex-1 py-2.5 px-3 bg-blue-950/40 border border-blue-600/50 hover:border-blue-400 rounded-xl text-center cursor-pointer transition text-blue-300 hover:text-white flex items-center justify-center gap-1.5 text-xs font-semibold shadow-sm">
+                                    <i class="fa-solid fa-camera text-blue-400 text-sm"></i>
+                                    <span>Take Live Photo</span>
+                                    <input type="file" id="checkinStartCamera" accept="image/*" capture="environment" onchange="App.handlePhotoUpload(this.files[0], 'start')" class="hidden">
                                 </label>
-                                <img id="startPhotoPreview" class="hidden w-11 h-11 object-cover rounded-xl border border-slate-700 shadow-sm" alt="Meter Preview"/>
+
+                                <!-- Option 2: Upload from Gallery / Files -->
+                                <label class="flex-1 py-2.5 px-3 bg-slate-950 border border-slate-700 hover:border-emerald-500 rounded-xl text-center cursor-pointer transition text-slate-300 hover:text-white flex items-center justify-center gap-1.5 text-xs font-semibold shadow-sm">
+                                    <i class="fa-solid fa-images text-emerald-400 text-sm"></i>
+                                    <span>From Gallery</span>
+                                    <input type="file" id="checkinStartGallery" accept="image/*" onchange="App.handlePhotoUpload(this.files[0], 'start')" class="hidden">
+                                </label>
+
+                                <img id="startPhotoPreview" class="hidden w-11 h-11 object-cover rounded-xl border border-emerald-500 shadow-md" alt="Meter Preview"/>
                             </div>
                         </div>
 
@@ -2145,19 +2153,27 @@
                     </div>
                 </div>
 
-                <!-- End Meter Photo Upload -->
+                <!-- End Meter Photo: Dual Options (Live Camera vs Gallery Upload) -->
                 <div>
                     <label class="block font-semibold text-slate-300 mb-1">
                         <i class="fa-solid fa-camera text-emerald-400 mr-1"></i> End Meter Photo (Verification)
                     </label>
-                    <div class="flex items-center gap-3">
-                        <label class="flex-1 py-2.5 px-3 bg-slate-950 border border-dashed border-slate-700 hover:border-emerald-500 rounded-xl text-center cursor-pointer transition text-slate-400 hover:text-white flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-camera text-blue-400"></i>
-                            <i class="fa-solid fa-image text-emerald-400"></i>
-                            <span class="text-xs">Camera / Upload Photo</span>
-                            <input type="file" id="checkoutEndPhoto" accept="image/*" onchange="App.handlePhotoUpload(this.files[0], 'end')" class="hidden">
+                    <div class="flex items-center gap-2">
+                        <!-- Option 1: Live Camera Capture -->
+                        <label class="flex-1 py-2.5 px-3 bg-emerald-950/40 border border-emerald-600/50 hover:border-emerald-400 rounded-xl text-center cursor-pointer transition text-emerald-300 hover:text-white flex items-center justify-center gap-1.5 text-xs font-semibold shadow-sm">
+                            <i class="fa-solid fa-camera text-emerald-400 text-sm"></i>
+                            <span>Take Live Photo</span>
+                            <input type="file" id="checkoutEndCamera" accept="image/*" capture="environment" onchange="App.handlePhotoUpload(this.files[0], 'end')" class="hidden">
                         </label>
-                        <img id="endPhotoPreview" class="hidden w-11 h-11 object-cover rounded-xl border border-slate-700 shadow-sm" alt="Meter Preview"/>
+
+                        <!-- Option 2: Upload from Gallery / Files -->
+                        <label class="flex-1 py-2.5 px-3 bg-slate-950 border border-slate-700 hover:border-emerald-500 rounded-xl text-center cursor-pointer transition text-slate-300 hover:text-white flex items-center justify-center gap-1.5 text-xs font-semibold shadow-sm">
+                            <i class="fa-solid fa-images text-blue-400 text-sm"></i>
+                            <span>From Gallery</span>
+                            <input type="file" id="checkoutEndGallery" accept="image/*" onchange="App.handlePhotoUpload(this.files[0], 'end')" class="hidden">
+                        </label>
+
+                        <img id="endPhotoPreview" class="hidden w-11 h-11 object-cover rounded-xl border border-emerald-500 shadow-md" alt="Meter Preview"/>
                     </div>
                 </div>
 
@@ -6956,6 +6972,16 @@ const TransportDB = {
 // =============================================================
 // REAL-TIME CLOUD SYNCHRONIZATION ENGINE (FIREBASE FIRESTORE)
 // =============================================================
+const DEFAULT_FIREBASE_CONFIG = {
+    apiKey: "AIzaSyDSE_Dk2kYUf8USpHPBVCsSQZdgumQgbRc",
+    authDomain: "fleetcost.firebaseapp.com",
+    projectId: "fleetcost",
+    storageBucket: "fleetcost.firebasestorage.app",
+    messagingSenderId: "1069727433906",
+    appId: "1:1069727433906:web:9cd347527490432e75b5ab",
+    measurementId: "G-6BP4XGFQ5M"
+};
+
 const FirebaseSync = {
     app: null,
     db: null,
@@ -6970,7 +6996,7 @@ const FirebaseSync = {
         if (window.FIREBASE_CONFIG && typeof window.FIREBASE_CONFIG === 'object') {
             return window.FIREBASE_CONFIG;
         }
-        return null;
+        return DEFAULT_FIREBASE_CONFIG;
     },
 
     saveConfig: function(configObj) {
@@ -8431,24 +8457,51 @@ const App = {
 
     handlePhotoUpload: function(file, type) {
         if (!file) return;
+
         const reader = new FileReader();
         reader.onload = (e) => {
-            const base64 = e.target.result;
-            if (type === 'start') {
-                this.startPhotoBase64 = base64;
-                const thumb = document.getElementById('startPhotoPreview');
-                if (thumb) {
-                    thumb.src = base64;
-                    thumb.classList.remove('hidden');
+            const img = new Image();
+            img.onload = () => {
+                // Client-side image resizing & compression to 800px max dimension, quality 0.7
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const maxDim = 800;
+
+                if (width > maxDim || height > maxDim) {
+                    if (width > height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
                 }
-            } else {
-                this.endPhotoBase64 = base64;
-                const thumb = document.getElementById('endPhotoPreview');
-                if (thumb) {
-                    thumb.src = base64;
-                    thumb.classList.remove('hidden');
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+                if (type === 'start') {
+                    this.startPhotoBase64 = compressedBase64;
+                    const thumb = document.getElementById('startPhotoPreview');
+                    if (thumb) {
+                        thumb.src = compressedBase64;
+                        thumb.classList.remove('hidden');
+                    }
+                } else {
+                    this.endPhotoBase64 = compressedBase64;
+                    const thumb = document.getElementById('endPhotoPreview');
+                    if (thumb) {
+                        thumb.src = compressedBase64;
+                        thumb.classList.remove('hidden');
+                    }
                 }
-            }
+            };
+            img.src = e.target.result;
         };
         reader.readAsDataURL(file);
     },

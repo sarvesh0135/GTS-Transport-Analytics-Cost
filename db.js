@@ -514,6 +514,16 @@ const TransportDB = {
 // =============================================================
 // REAL-TIME CLOUD SYNCHRONIZATION ENGINE (FIREBASE FIRESTORE)
 // =============================================================
+const DEFAULT_FIREBASE_CONFIG = {
+    apiKey: "AIzaSyDSE_Dk2kYUf8USpHPBVCsSQZdgumQgbRc",
+    authDomain: "fleetcost.firebaseapp.com",
+    projectId: "fleetcost",
+    storageBucket: "fleetcost.firebasestorage.app",
+    messagingSenderId: "1069727433906",
+    appId: "1:1069727433906:web:9cd347527490432e75b5ab",
+    measurementId: "G-6BP4XGFQ5M"
+};
+
 const FirebaseSync = {
     app: null,
     db: null,
@@ -528,7 +538,7 @@ const FirebaseSync = {
         if (window.FIREBASE_CONFIG && typeof window.FIREBASE_CONFIG === 'object') {
             return window.FIREBASE_CONFIG;
         }
-        return null;
+        return DEFAULT_FIREBASE_CONFIG;
     },
 
     saveConfig: function(configObj) {

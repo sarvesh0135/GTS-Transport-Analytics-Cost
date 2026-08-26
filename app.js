@@ -604,24 +604,51 @@ const App = {
 
     handlePhotoUpload: function(file, type) {
         if (!file) return;
+
         const reader = new FileReader();
         reader.onload = (e) => {
-            const base64 = e.target.result;
-            if (type === 'start') {
-                this.startPhotoBase64 = base64;
-                const thumb = document.getElementById('startPhotoPreview');
-                if (thumb) {
-                    thumb.src = base64;
-                    thumb.classList.remove('hidden');
+            const img = new Image();
+            img.onload = () => {
+                // Client-side image resizing & compression to 800px max dimension, quality 0.7
+                const canvas = document.createElement('canvas');
+                let width = img.width;
+                let height = img.height;
+                const maxDim = 800;
+
+                if (width > maxDim || height > maxDim) {
+                    if (width > height) {
+                        height = Math.round((height * maxDim) / width);
+                        width = maxDim;
+                    } else {
+                        width = Math.round((width * maxDim) / height);
+                        height = maxDim;
+                    }
                 }
-            } else {
-                this.endPhotoBase64 = base64;
-                const thumb = document.getElementById('endPhotoPreview');
-                if (thumb) {
-                    thumb.src = base64;
-                    thumb.classList.remove('hidden');
+
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+
+                if (type === 'start') {
+                    this.startPhotoBase64 = compressedBase64;
+                    const thumb = document.getElementById('startPhotoPreview');
+                    if (thumb) {
+                        thumb.src = compressedBase64;
+                        thumb.classList.remove('hidden');
+                    }
+                } else {
+                    this.endPhotoBase64 = compressedBase64;
+                    const thumb = document.getElementById('endPhotoPreview');
+                    if (thumb) {
+                        thumb.src = compressedBase64;
+                        thumb.classList.remove('hidden');
+                    }
                 }
-            }
+            };
+            img.src = e.target.result;
         };
         reader.readAsDataURL(file);
     },
