@@ -153,8 +153,21 @@ const AppExporter = {
                         </div>
                     ` : ''}
 
-                    <div style="margin-top:14px; text-align:right;">
-                        <span class="badge-v">${trip.isVerified ? `✓ Verified by ${trip.verifiedBy}` : 'Verification Pending'}</span>
+                    <div style="margin-top:16px; border: 1.5px solid ${trip.isVerified ? '#059669' : '#cbd5e1'}; border-radius: 8px; padding: 12px; background:${trip.isVerified ? '#ecfdf5' : '#f8fafc'}; display:flex; justify-content:space-between; align-items:center;">
+                        <div>
+                            <div style="font-size:11px; color:#64748b; font-weight:600;">SUPERVISOR VERIFICATION:</div>
+                            <div style="font-size:14px; font-weight:bold; color:${trip.isVerified ? '#059669' : '#d97706'}; margin-top:2px;">
+                                ${trip.isVerified ? `✓ Verified by ${trip.verifiedBy}` : 'Verification Pending'}
+                            </div>
+                            ${trip.verifiedAt ? `<div style="font-size:10px; color:#64748b; margin-top:2px;">Verified on: ${new Date(trip.verifiedAt).toLocaleString()}</div>` : ''}
+                            ${trip.verificationNotes ? `<div style="font-size:11px; color:#0f172a; margin-top:4px; font-style:italic;">"${trip.verificationNotes}"</div>` : ''}
+                        </div>
+                        <div style="text-align:right;">
+                            <div style="font-size:10px; color:#64748b; margin-bottom: 24px;">Supervisor Signature</div>
+                            <div style="border-top:1px dashed #64748b; width:150px; text-align:center; font-size:11px; font-weight:600; color:#0f172a; padding-top:4px;">
+                                ${trip.isVerified ? trip.verifiedBy : 'Authorized Signatory'}
+                            </div>
+                        </div>
                     </div>
 
                     <div class="footer">

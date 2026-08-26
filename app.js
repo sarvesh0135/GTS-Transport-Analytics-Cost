@@ -49,6 +49,7 @@ const App = {
         this.renderDriversList();
         this.renderFuelRatesForm();
         this.renderActivePinDisplay();
+        this.renderFirebaseConfigForm();
         this.updateAutoSiteCodeSuggestion();
         this.startTimer();
     },
@@ -170,6 +171,12 @@ const App = {
         document.getElementById('changePinForm')?.addEventListener('submit', (e) => {
             e.preventDefault();
             this.handleChangePin();
+        });
+
+        // Verify Trip Form Submit
+        document.getElementById('verifyTripForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleConfirmVerification();
         });
     },
 
@@ -367,6 +374,7 @@ const App = {
             this.renderVehicleFleet();
             this.renderDriversList();
             this.renderActivePinDisplay();
+            this.renderFirebaseConfigForm();
         }
     },
 
@@ -444,6 +452,59 @@ const App = {
         }
         if (fDest && fDest.options.length <= 1) {
             fDest.innerHTML = '<option value="ALL">All Destination Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
+        }
+    },
+
+    filterOriginSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const originSelect = document.getElementById('checkinOriginSelect');
+        const countBadge = document.getElementById('originSiteCountBadge');
+        if (!originSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query)) ||
+            (s.customerGroup && s.customerGroup.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} of ${sites.length} Sites`;
+
+        let html = `<option value="">-- Select Departure Site (${filtered.length} match${filtered.length === 1 ? '' : 'es'}) --</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        originSelect.innerHTML = html;
+
+        // If exactly 1 match found, auto-select it and show info card
+        if (filtered.length === 1 && query.length >= 2) {
+            originSelect.value = filtered[0].code;
+            this.updateOriginSiteDetails(filtered[0].code);
+        }
+    },
+
+    filterDestSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const destSelect = document.getElementById('checkoutDestSelect');
+        const countBadge = document.getElementById('destSiteCountBadge');
+        if (!destSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query)) ||
+            (s.customerGroup && s.customerGroup.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} of ${sites.length} Sites`;
+
+        let html = `<option value="">-- Select Arrival Site (${filtered.length} match${filtered.length === 1 ? '' : 'es'}) --</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        destSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            destSelect.value = filtered[0].code;
+            this.updateDestSiteDetails(filtered[0].code);
         }
     },
 
@@ -1159,12 +1220,15 @@ const App = {
                     <td class="py-3.5 px-4">
                         ${isComp ? (
                             t.isVerified ? `
-                                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800" title="Verified by ${t.verifiedBy}">
-                                    <i class="fa-solid fa-circle-check text-[10px]"></i> Verified
-                                </span>
+                                <div class="flex flex-col items-start gap-0.5">
+                                    <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800 flex items-center gap-1">
+                                        <i class="fa-solid fa-circle-check text-[10px]"></i> Verified
+                                    </span>
+                                    <span class="text-[10px] text-emerald-400 font-medium truncate max-w-[130px]" title="Verified by ${t.verifiedBy}">by ${t.verifiedBy || 'Supervisor'}</span>
+                                </div>
                             ` : `
-                                <button onclick="App.verifyTripModal('${t.id}')" class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-950 text-amber-300 border border-amber-800 hover:bg-amber-900 transition">
-                                    <i class="fa-solid fa-check"></i> Verify
+                                <button onclick="App.openVerifyModal('${t.id}')" class="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30 transition flex items-center gap-1.5 shadow-sm">
+                                    <i class="fa-solid fa-signature text-[10px]"></i> Verify
                                 </button>
                             `
                         ) : '<span class="text-slate-500 text-[11px]">In Transit</span>'}
@@ -1197,13 +1261,64 @@ const App = {
         this.renderTripTable();
     },
 
-    verifyTripModal: function(tripId) {
+    openVerifyModal: function(tripId) {
         const trip = TransportDB.getTripById(tripId);
         if (!trip) return;
 
-        const supervisorName = trip.destSupervisor || trip.originSupervisor || 'Site Supervisor';
-        TransportDB.verifyTrip(tripId, supervisorName);
-        this.showNotification(`Trip ${trip.id} verified by ${supervisorName}.`, 'success');
+        const modal = document.getElementById('verifyTripModal');
+        const targetIdInput = document.getElementById('verifyTripTargetId');
+        const badgeEl = document.getElementById('verifyTripIdBadge');
+        const summaryEl = document.getElementById('verifyTripRouteSummary');
+        const supervisorInput = document.getElementById('verifySupervisorName');
+        const notesInput = document.getElementById('verifyNotes');
+
+        if (targetIdInput) targetIdInput.value = trip.id;
+        if (badgeEl) badgeEl.textContent = trip.id;
+
+        if (summaryEl) {
+            summaryEl.innerHTML = `
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Route:</span>
+                    <span class="font-bold text-white">[${trip.originSiteCode}] ${trip.originSiteName} ➔ [${trip.destSiteCode || '-'}] ${trip.destSiteName || 'Destination'}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Driver &amp; Vehicle:</span>
+                    <span class="text-white font-mono">${trip.driverName} · ${trip.vehiclePlate}</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Distance &amp; Total Cost:</span>
+                    <span class="font-mono font-bold text-emerald-400">${trip.distance} km (₹${trip.totalCost})</span>
+                </div>
+            `;
+        }
+
+        if (supervisorInput) {
+            supervisorInput.value = trip.destSupervisor || trip.originSupervisor || '';
+            setTimeout(() => supervisorInput.focus(), 150);
+        }
+        if (notesInput) notesInput.value = '';
+
+        if (modal) modal.classList.remove('hidden');
+    },
+
+    closeVerifyModal: function() {
+        const modal = document.getElementById('verifyTripModal');
+        if (modal) modal.classList.add('hidden');
+    },
+
+    handleConfirmVerification: function() {
+        const tripId = document.getElementById('verifyTripTargetId')?.value;
+        const supervisorName = document.getElementById('verifySupervisorName')?.value.trim();
+        const notes = document.getElementById('verifyNotes')?.value.trim();
+
+        if (!supervisorName) {
+            this.showNotification('Please enter the verifier / supervisor name.', 'error');
+            return;
+        }
+
+        TransportDB.verifyTrip(tripId, supervisorName, notes);
+        this.closeVerifyModal();
+        this.showNotification(`Trip ${tripId} verified by ${supervisorName}.`, 'success');
         this.refreshAll();
     },
 
@@ -1382,6 +1497,79 @@ const App = {
         TransportDB.saveFuelRates(rates);
         this.showNotification('Market fuel rates updated successfully!', 'success');
         this.handleFuelTypeChange(document.querySelector('input[name="checkinFuelType"]:checked')?.value || 'Diesel');
+    },
+
+    // --- FIREBASE CLOUD SYNC HANDLERS ---
+    handleSaveFirebaseConfig: function() {
+        const rawJson = document.getElementById('firebaseConfigJson')?.value.trim();
+        if (!rawJson) {
+            this.showNotification('Please paste your Firebase configuration object.', 'error');
+            return;
+        }
+
+        try {
+            // Support both JSON format and direct JS object format
+            let config;
+            try {
+                config = JSON.parse(rawJson);
+            } catch (e) {
+                // Try evaluating sanitized object
+                const sanitized = rawJson.replace(/([a-zA-Z0-9_]+)\s*:/g, '"$1":').replace(/'/g, '"');
+                config = JSON.parse(sanitized);
+            }
+
+            if (!config.apiKey || !config.projectId) {
+                throw new Error("Invalid config. 'apiKey' and 'projectId' are required.");
+            }
+
+            const success = FirebaseSync.saveConfig(config);
+            if (success) {
+                this.renderFirebaseConfigForm();
+                this.showNotification('🟢 Connected to Firebase Cloud! Multi-device sync is now active.', 'success');
+            } else {
+                throw new Error("Could not initialize Firebase with provided credentials.");
+            }
+        } catch (err) {
+            this.showNotification(`Firebase connection failed: ${err.message}`, 'error');
+        }
+    },
+
+    handleMigrateToCloud: async function() {
+        try {
+            this.showNotification('Uploading local trips to Firebase Cloud...', 'info');
+            const count = await FirebaseSync.migrateLocalToCloud();
+            this.showNotification(`✓ Successfully synced ${count} trips to Cloud!`, 'success');
+        } catch (e) {
+            this.showNotification(`Cloud sync failed: ${e.message}`, 'error');
+        }
+    },
+
+    handleClearFirebaseConfig: function() {
+        if (confirm("Disconnect from Firebase Cloud and revert to local storage?")) {
+            FirebaseSync.clearConfig();
+            this.renderFirebaseConfigForm();
+            this.showNotification('Disconnected from Cloud. Now in Local Storage mode.', 'info');
+        }
+    },
+
+    renderFirebaseConfigForm: function() {
+        const config = FirebaseSync.getConfig();
+        const textarea = document.getElementById('firebaseConfigJson');
+        const statusLabel = document.getElementById('fbSyncStatusLabel');
+
+        if (textarea && config) {
+            textarea.value = JSON.stringify(config, null, 2);
+        }
+
+        if (statusLabel) {
+            if (FirebaseSync.isInitialized) {
+                statusLabel.innerHTML = '<span class="text-emerald-400 font-bold">🟢 Connected</span>';
+            } else {
+                statusLabel.innerHTML = '<span class="text-slate-500 font-bold">⚪ Not Connected</span>';
+            }
+        }
+
+        FirebaseSync.updateSyncBadge(FirebaseSync.isInitialized);
     },
 
     startTimer: function() {

@@ -54,6 +54,11 @@ const TransportDB = {
             if (!hasRealVehicles) {
                 this.saveVehicles(DEFAULT_VEHICLES);
             }
+
+            // Initialize Cloud Sync (Firebase)
+            if (typeof FirebaseSync !== 'undefined') {
+                FirebaseSync.init();
+            }
         } catch (e) {
             console.error('[TransportDB] Init warning:', e);
         }
@@ -267,6 +272,7 @@ const TransportDB = {
 
         trips.unshift(newTrip);
         this.saveTrips(trips);
+        if (typeof FirebaseSync !== 'undefined') FirebaseSync.syncTrip(newTrip);
         return newTrip;
     },
 
@@ -326,6 +332,7 @@ const TransportDB = {
             currentOdo: endOdo
         });
 
+        if (typeof FirebaseSync !== 'undefined') FirebaseSync.syncTrip(trip);
         return trip;
     },
 
@@ -334,9 +341,11 @@ const TransportDB = {
         const trip = trips.find(t => t.id === tripId);
         if (trip) {
             trip.isVerified = true;
-            trip.verifiedBy = verifiedBy || trip.destSupervisor || 'Site Supervisor';
+            trip.verifiedBy = (verifiedBy || '').trim() || trip.destSupervisor || 'Site Supervisor';
+            trip.verifiedAt = new Date().toISOString();
             if (notes) trip.verificationNotes = notes;
             this.saveTrips(trips);
+            if (typeof FirebaseSync !== 'undefined') FirebaseSync.syncTrip(trip);
             return trip;
         }
         throw new Error('Trip not found');
@@ -346,6 +355,7 @@ const TransportDB = {
         let trips = this.getTrips();
         trips = trips.filter(t => t.id !== tripId);
         this.saveTrips(trips);
+        if (typeof FirebaseSync !== 'undefined') FirebaseSync.deleteTrip(tripId);
     },
 
     // --- VEHICLES MANAGEMENT ---
@@ -501,5 +511,149 @@ const TransportDB = {
     }
 };
 
+// =============================================================
+// REAL-TIME CLOUD SYNCHRONIZATION ENGINE (FIREBASE FIRESTORE)
+// =============================================================
+const FirebaseSync = {
+    app: null,
+    db: null,
+    isInitialized: false,
+    unsubscribeTrips: null,
+
+    getConfig: function() {
+        try {
+            const raw = localStorage.getItem('tct_firebase_config');
+            if (raw) return JSON.parse(raw);
+        } catch (e) {}
+        if (window.FIREBASE_CONFIG && typeof window.FIREBASE_CONFIG === 'object') {
+            return window.FIREBASE_CONFIG;
+        }
+        return null;
+    },
+
+    saveConfig: function(configObj) {
+        try {
+            localStorage.setItem('tct_firebase_config', JSON.stringify(configObj));
+            return this.init();
+        } catch (e) {
+            return false;
+        }
+    },
+
+    clearConfig: function() {
+        try {
+            localStorage.removeItem('tct_firebase_config');
+            if (this.unsubscribeTrips) this.unsubscribeTrips();
+            this.isInitialized = false;
+            this.updateSyncBadge(false);
+        } catch (e) {}
+    },
+
+    init: function() {
+        const config = this.getConfig();
+        if (!config || !config.apiKey || !config.projectId) {
+            this.isInitialized = false;
+            this.updateSyncBadge(false);
+            return false;
+        }
+
+        try {
+            if (typeof firebase === 'undefined') {
+                console.warn('[FirebaseSync] Firebase SDK not loaded.');
+                this.updateSyncBadge(false);
+                return false;
+            }
+
+            if (!firebase.apps.length) {
+                this.app = firebase.initializeApp(config);
+            } else {
+                this.app = firebase.app();
+            }
+
+            this.db = firebase.firestore();
+            this.isInitialized = true;
+            this.updateSyncBadge(true);
+            this.startTripsListener();
+            return true;
+        } catch (e) {
+            console.error('[FirebaseSync] Initialization error:', e);
+            this.isInitialized = false;
+            this.updateSyncBadge(false);
+            return false;
+        }
+    },
+
+    updateSyncBadge: function(isConnected) {
+        const badge = document.getElementById('cloudSyncStatusBadge');
+        if (badge) {
+            if (isConnected) {
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> <span>Cloud Synced (Live)</span>';
+                badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-[11px] font-semibold";
+            } else {
+                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> <span>Local Storage Mode</span>';
+                badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-[11px] font-semibold";
+            }
+        }
+    },
+
+    startTripsListener: function() {
+        if (!this.isInitialized || !this.db) return;
+        if (this.unsubscribeTrips) this.unsubscribeTrips();
+
+        try {
+            this.unsubscribeTrips = this.db.collection('trips').onSnapshot(snapshot => {
+                const cloudTrips = [];
+                snapshot.forEach(doc => {
+                    cloudTrips.push(doc.data());
+                });
+
+                if (cloudTrips.length > 0) {
+                    // Sort descending by checkInTime
+                    cloudTrips.sort((a, b) => new Date(b.checkInTime) - new Date(a.checkInTime));
+                    _memStore.trips = cloudTrips;
+                    try {
+                        localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(cloudTrips));
+                    } catch (e) {}
+                    if (window.App && typeof window.App.refreshAll === 'function') {
+                        window.App.refreshAll();
+                    }
+                }
+            }, err => {
+                console.warn('[FirebaseSync] Snapshot listener warning:', err);
+            });
+        } catch (e) {}
+    },
+
+    syncTrip: function(trip) {
+        if (!this.isInitialized || !this.db || !trip || !trip.id) return;
+        try {
+            this.db.collection('trips').doc(trip.id).set(trip, { merge: true });
+        } catch (e) {
+            console.error('[FirebaseSync] Failed to sync trip:', e);
+        }
+    },
+
+    deleteTrip: function(tripId) {
+        if (!this.isInitialized || !this.db || !tripId) return;
+        try {
+            this.db.collection('trips').doc(tripId).delete();
+        } catch (e) {
+            console.error('[FirebaseSync] Failed to delete trip in cloud:', e);
+        }
+    },
+
+    migrateLocalToCloud: async function() {
+        if (!this.isInitialized || !this.db) throw new Error("Firebase is not connected. Please save your Firebase credentials first.");
+        const trips = TransportDB.getTrips();
+        let count = 0;
+        for (const t of trips) {
+            await this.db.collection('trips').doc(t.id).set(t, { merge: true });
+            count++;
+        }
+        return count;
+    }
+};
+
 window.TransportDB = TransportDB;
+window.FirebaseSync = FirebaseSync;
 TransportDB.init();
