@@ -1,0 +1,1423 @@
+function bootApp() {
+    try {
+        if (window.App && typeof window.App.init === 'function') {
+            window.App.init();
+        }
+    } catch (e) {
+        console.error('Error booting FleetCost App:', e);
+    }
+}
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootApp);
+} else {
+    setTimeout(bootApp, 10);
+}
+
+const App = {
+    currentTab: 'driver',
+    currentRole: 'driver', // 'driver' or 'management'
+    currentActiveTripId: null,
+    startPhotoBase64: null,
+    endPhotoBase64: null,
+    tripFilters: {
+        status: 'ALL',
+        originCode: 'ALL',
+        destCode: 'ALL',
+        fuelType: 'ALL',
+        dateFrom: '',
+        dateTo: '',
+        search: ''
+    },
+
+    init: function() {
+        if (!TransportDB.getSites() || TransportDB.getSites().length === 0) {
+            if (window.EMBEDDED_SITES && window.EMBEDDED_SITES.length > 0) {
+                TransportDB.saveSites(window.EMBEDDED_SITES);
+            }
+        }
+        this.currentRole = TransportDB.getRole() || 'driver';
+        this.bindEvents();
+        this.applyRoleView();
+        this.populateDropdowns();
+        this.renderActiveTrips();
+        this.renderTripTable();
+        this.renderSiteMatrix();
+        this.renderFleetKPIs();
+        this.renderSitesList();
+        this.renderVehicleFleet();
+        this.renderDriversList();
+        this.renderFuelRatesForm();
+        this.renderActivePinDisplay();
+        this.updateAutoSiteCodeSuggestion();
+        this.startTimer();
+    },
+
+    bindEvents: function() {
+        // Tab switching
+        document.querySelectorAll('[data-tab-target]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this.switchTab(btn.getAttribute('data-tab-target'));
+            });
+        });
+
+        // Role Switch Toggle
+        const roleToggleBtn = document.getElementById('roleToggleBtn');
+        if (roleToggleBtn) {
+            roleToggleBtn.addEventListener('click', () => {
+                this.toggleRole();
+            });
+        }
+
+        // Origin Site Change -> Display Supervisor & Asst Manager
+        const originSelect = document.getElementById('checkinOriginSelect');
+        if (originSelect) {
+            originSelect.addEventListener('change', (e) => {
+                this.updateOriginSiteDetails(e.target.value);
+            });
+        }
+
+        // Destination Site Change -> Display Supervisor & Asst Manager
+        const destSelect = document.getElementById('checkoutDestSelect');
+        if (destSelect) {
+            destSelect.addEventListener('change', (e) => {
+                this.updateDestSiteDetails(e.target.value);
+            });
+        }
+
+        // Fuel Type selector change -> Update rates & default mileage
+        document.querySelectorAll('input[name="checkinFuelType"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                this.handleFuelTypeChange(e.target.value);
+            });
+        });
+
+        // Photo Upload Listeners
+        document.getElementById('checkinStartPhoto')?.addEventListener('change', (e) => {
+            this.handlePhotoUpload(e.target.files[0], 'start');
+        });
+        document.getElementById('checkoutEndPhoto')?.addEventListener('change', (e) => {
+            this.handlePhotoUpload(e.target.files[0], 'end');
+        });
+
+        // Check-In Submit
+        document.getElementById('driverCheckinForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleDriverCheckIn();
+        });
+
+        // Check-Out Reactive Inputs
+        document.getElementById('checkoutEndOdo')?.addEventListener('input', () => this.recalculateCheckoutPreview());
+        document.getElementById('checkoutTolls')?.addEventListener('input', () => this.recalculateCheckoutPreview());
+
+        // Check-Out Submit
+        document.getElementById('checkoutForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleDriverCheckOut();
+        });
+
+        // Filter events
+        ['filterStatus', 'filterOrigin', 'filterDest', 'filterFuelType', 'filterDateFrom', 'filterDateTo'].forEach(id => {
+            document.getElementById(id)?.addEventListener('change', () => this.handleFilterChange());
+        });
+        document.getElementById('filterSearch')?.addEventListener('input', () => this.handleFilterChange());
+
+        // Export Buttons
+        document.getElementById('btnExportTrips')?.addEventListener('click', () => {
+            const trips = TransportCalculator.filterTrips(TransportDB.getTrips(), this.tripFilters);
+            AppExporter.exportTripsToExcel(trips);
+        });
+        document.getElementById('btnExportMatrix')?.addEventListener('click', () => {
+            const routes = TransportCalculator.computeSiteToSiteMatrix(TransportDB.getTrips(), TransportDB.getSites());
+            AppExporter.exportRouteMatrixToExcel(routes);
+        });
+
+        // Add Site Submit
+        document.getElementById('addSiteForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleAddSite();
+        });
+
+        // Add Vehicle Submit
+        document.getElementById('addVehicleForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleAddVehicle();
+        });
+
+        // Add Driver Submit
+        document.getElementById('addDriverForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleAddDriver();
+        });
+
+        // Fuel Rates Save
+        document.getElementById('fuelRatesForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleSaveFuelRates();
+        });
+
+        // Sync / Import Excel File
+        document.getElementById('inputImportExcel')?.addEventListener('change', (e) => {
+            this.handleExcelImport(e.target.files[0]);
+        });
+        // PIN Modal Submit
+        document.getElementById('mgmtPinForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handlePinSubmit();
+        });
+
+        // Change PIN Form Submit
+        document.getElementById('changePinForm')?.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleChangePin();
+        });
+    },
+
+    toggleRole: function() {
+        if (this.currentRole === 'driver') {
+            this.openPinModal();
+        } else {
+            // Lock back to driver mode immediately
+            this.currentRole = 'driver';
+            TransportDB.setRole('driver');
+            this.applyRoleView();
+            if (this.currentTab !== 'driver') {
+                this.switchTab('driver');
+            }
+            this.showNotification('Locked and switched to 👨‍✈️ Driver Terminal', 'info');
+        }
+    },
+
+    openPinModal: function() {
+        const modal = document.getElementById('mgmtPinModal');
+        const input = document.getElementById('mgmtPinInput');
+        const errEl = document.getElementById('mgmtPinError');
+        const promptEl = document.getElementById('mgmtPinPromptText');
+
+        if (errEl) errEl.classList.add('hidden');
+        if (promptEl) {
+            promptEl.textContent = 'Enter PIN to unlock executive analytics & rates';
+        }
+        if (input) {
+            input.value = '';
+            input.placeholder = '••••';
+            setTimeout(() => input.focus(), 150);
+        }
+        if (modal) modal.classList.remove('hidden');
+    },
+
+    closePinModal: function() {
+        const modal = document.getElementById('mgmtPinModal');
+        if (modal) modal.classList.add('hidden');
+    },
+
+    handlePinSubmit: function() {
+        const input = document.getElementById('mgmtPinInput');
+        const errEl = document.getElementById('mgmtPinError');
+        const enteredPin = input ? String(input.value).trim() : '';
+        const correctPin = String(TransportDB.getManagementPin() || '1234').trim();
+
+        if (enteredPin === correctPin) {
+            this.closePinModal();
+            this.currentRole = 'management';
+            TransportDB.setRole('management');
+            this.applyRoleView();
+            this.showNotification('🔓 Management Portal Unlocked successfully!', 'success');
+        } else {
+            if (errEl) {
+                errEl.textContent = '❌ Incorrect PIN. Please try again.';
+                errEl.classList.remove('hidden');
+            }
+            if (input) {
+                input.value = '';
+                input.focus();
+            }
+        }
+    },
+
+    handleChangePin: function() {
+        const curInput = document.getElementById('curMgmtPin')?.value.trim();
+        const newInput = document.getElementById('newMgmtPin')?.value.trim();
+        const confInput = document.getElementById('confMgmtPin')?.value.trim();
+        const correctPin = String(TransportDB.getManagementPin() || '1234').trim();
+
+        if (curInput && curInput !== correctPin) {
+            this.showNotification('Current PIN is incorrect.', 'error');
+            return;
+        }
+        if (!newInput || newInput.length < 4) {
+            this.showNotification('New PIN must be at least 4 digits.', 'error');
+            return;
+        }
+        if (newInput !== confInput) {
+            this.showNotification('New PIN and Confirm PIN do not match.', 'error');
+            return;
+        }
+
+        TransportDB.setManagementPin(newInput);
+        document.getElementById('changePinForm')?.reset();
+        this.showNotification('Management Security PIN updated successfully!', 'success');
+    },
+
+    renderActivePinDisplay: function() {
+        const pinBadge = document.getElementById('activeMgmtPinBadge');
+        if (pinBadge) {
+            const currentPin = TransportDB.getManagementPin();
+            pinBadge.textContent = `Active PIN: ${currentPin}`;
+        }
+    },
+
+    setRole: function(role) {
+        this.currentRole = role;
+        TransportDB.setRole(role);
+        this.applyRoleView();
+    },
+
+    applyRoleView: function() {
+        const isMgmt = this.currentRole === 'management';
+        
+        // Update header role toggle button text and styling
+        const roleBtn = document.getElementById('roleToggleBtn');
+        if (roleBtn) {
+            if (isMgmt) {
+                roleBtn.innerHTML = '<i class="fa-solid fa-user-shield text-emerald-400"></i> <span>Management Mode</span> <span class="bg-emerald-500/20 text-emerald-300 text-[10px] px-1.5 py-0.5 rounded font-mono">Full Access</span>';
+                roleBtn.className = "px-3.5 py-1.5 rounded-xl bg-slate-900 border border-emerald-500/40 text-xs font-semibold text-white hover:bg-slate-800 transition flex items-center gap-2 cursor-pointer shadow-sm";
+            } else {
+                roleBtn.innerHTML = '<i class="fa-solid fa-id-card text-blue-400"></i> <span>Driver Terminal</span> <span class="bg-blue-500/20 text-blue-300 text-[10px] px-1.5 py-0.5 rounded font-mono">Tap for Management</span>';
+                roleBtn.className = "px-3.5 py-1.5 rounded-xl bg-slate-900 border border-blue-500/40 text-xs font-semibold text-white hover:bg-slate-800 transition flex items-center gap-2 cursor-pointer shadow-sm";
+            }
+        }
+
+        // Show/hide management tabs in top navigation
+        document.querySelectorAll('.mgmt-only-tab').forEach(el => {
+            if (isMgmt) {
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        });
+
+        // Top KPI Highlights Bar: in driver mode, hide financial metrics
+        document.querySelectorAll('.mgmt-only-kpi').forEach(el => {
+            if (isMgmt) {
+                el.classList.remove('hidden');
+            } else {
+                el.classList.add('hidden');
+            }
+        });
+
+        // Checkout Modal costing preview: hide from driver, show to management
+        const costPreview = document.getElementById('checkoutCostPreviewBox');
+        if (costPreview) {
+            if (isMgmt) {
+                costPreview.classList.remove('hidden');
+            } else {
+                costPreview.classList.add('hidden');
+            }
+        }
+
+        // Rate display in check-in
+        const rateNote = document.getElementById('fuelTypeRateDisplay');
+        if (rateNote) {
+            if (isMgmt) {
+                rateNote.classList.remove('hidden');
+            } else {
+                rateNote.classList.add('hidden');
+            }
+        }
+    },
+
+    switchTab: function(tabName) {
+        // If driver role tries to open management tab, block or switch role
+        if (this.currentRole === 'driver' && tabName !== 'driver') {
+            this.showNotification('Management tabs require Management Portal mode.', 'info');
+            return;
+        }
+
+        this.currentTab = tabName;
+
+        // Hide all tab content panels
+        document.querySelectorAll('.tab-content').forEach(tc => {
+            tc.classList.remove('active');
+        });
+
+        // Show the target tab
+        const target = document.getElementById('tab-' + tabName);
+        if (target) target.classList.add('active');
+
+        // Update button active/inactive state
+        document.querySelectorAll('[data-tab-target]').forEach(btn => {
+            const isMatch = btn.getAttribute('data-tab-target') === tabName;
+            btn.classList.toggle('tab-active', isMatch);
+            btn.classList.toggle('tab-inactive', !isMatch);
+        });
+
+        if (tabName === 'analytics') {
+            setTimeout(() => {
+                AppCharts.renderAllCharts(TransportDB.getTrips(), TransportDB.getSites(), TransportDB.getVehicles());
+            }, 100);
+        } else if (tabName === 'matrix') {
+            this.renderSiteMatrix();
+        } else if (tabName === 'trips') {
+            this.renderTripTable();
+        } else if (tabName === 'driver') {
+            this.renderActiveTrips();
+        } else if (tabName === 'fleet') {
+            this.renderSitesList();
+            this.renderVehicleFleet();
+            this.renderDriversList();
+            this.renderActivePinDisplay();
+        }
+    },
+
+    refreshAll: function() {
+        this.populateDropdowns();
+        this.renderActiveTrips();
+        this.renderTripTable();
+        this.renderSiteMatrix();
+        this.renderFleetKPIs();
+        this.renderSitesList();
+        this.renderVehicleFleet();
+        this.renderDriversList();
+        this.renderFuelRatesForm();
+        this.renderActivePinDisplay();
+        this.updateAutoSiteCodeSuggestion();
+        if (this.currentTab === 'analytics') {
+            AppCharts.renderAllCharts(TransportDB.getTrips(), TransportDB.getSites(), TransportDB.getVehicles());
+        }
+    },
+
+    populateDropdowns: function() {
+        let sites = TransportDB.getSites();
+        if (!sites || sites.length === 0) {
+            if (window.EMBEDDED_SITES && window.EMBEDDED_SITES.length > 0) {
+                sites = window.EMBEDDED_SITES;
+                TransportDB.saveSites(sites);
+            }
+        }
+
+        const drivers = TransportDB.getDrivers();
+        const vehicles = TransportDB.getVehicles();
+
+        // 1. Driver Dropdown
+        const driverSelect = document.getElementById('checkinDriverSelect');
+        if (driverSelect) {
+            let options = '<option value="">-- Select Driver --</option>';
+            options += '<option value="__NEW__">➕ Add New Driver (Enter Name & Mobile)</option>';
+            drivers.forEach(d => {
+                const phoneStr = d.phone && d.phone !== 'Not Provided' ? ` (${d.phone})` : '';
+                options += `<option value="${d.name}" data-phone="${d.phone || ''}">${d.name}${phoneStr}</option>`;
+            });
+            driverSelect.innerHTML = options;
+        }
+
+        // 2. Vehicle Dropdown
+        const vehSelect = document.getElementById('checkinVehicleSelect');
+        if (vehSelect) {
+            let options = '<option value="">-- Select Vehicle --</option>';
+            options += '<option value="__NEW__">➕ Add New Vehicle</option>';
+            vehicles.forEach(v => {
+                options += `<option value="${v.plate}" data-fuel="${v.fuelType}" data-mileage="${v.mileage}">${v.plate} (${v.fuelType} · ${v.mileage} km/L)</option>`;
+            });
+            vehSelect.innerHTML = options;
+        }
+
+        // 3. Origin Sites Dropdown (314 Sites)
+        const originSelect = document.getElementById('checkinOriginSelect');
+        if (originSelect && originSelect.options.length <= 1) {
+            originSelect.innerHTML = '<option value="">-- Search / Select Departure Site (314 Sites Available) --</option>' +
+                sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        }
+
+        // 4. Destination Sites Dropdown (314 Sites)
+        const destSelect = document.getElementById('checkoutDestSelect');
+        if (destSelect && destSelect.options.length <= 1) {
+            destSelect.innerHTML = '<option value="">-- Search / Select Arrival Site --</option>' +
+                sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        }
+
+        // 5. Filter Dropdowns
+        const fOrigin = document.getElementById('filterOrigin');
+        const fDest = document.getElementById('filterDest');
+        if (fOrigin && fOrigin.options.length <= 1) {
+            fOrigin.innerHTML = '<option value="ALL">All Origin Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
+        }
+        if (fDest && fDest.options.length <= 1) {
+            fDest.innerHTML = '<option value="ALL">All Destination Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
+        }
+    },
+
+    handleDriverSelectChange: function(selectEl) {
+        const val = selectEl.value;
+        const customBox = document.getElementById('checkinCustomDriverBox');
+        if (val === '__NEW__') {
+            if (customBox) customBox.classList.remove('hidden');
+            const nameInput = document.getElementById('checkinCustomDriverName');
+            if (nameInput) nameInput.focus();
+        } else {
+            if (customBox) customBox.classList.add('hidden');
+            const nameInput = document.getElementById('checkinCustomDriverName');
+            const phoneInput = document.getElementById('checkinCustomDriverPhone');
+            if (nameInput) nameInput.value = '';
+            if (phoneInput) phoneInput.value = '';
+        }
+    },
+
+    handleVehicleSelectChange: function(selectEl) {
+        const val = selectEl.value;
+        const customBox = document.getElementById('checkinCustomVehicleBox');
+        if (val === '__NEW__') {
+            if (customBox) customBox.classList.remove('hidden');
+            const plateInput = document.getElementById('checkinCustomPlate');
+            if (plateInput) plateInput.focus();
+            return;
+        }
+
+        if (customBox) customBox.classList.add('hidden');
+        if (!val) return;
+
+        const vehicles = TransportDB.getVehicles();
+        const match = vehicles.find(v => v.plate === val);
+        if (match) {
+            // Fill mileage with vehicle's average mileage (keeps it editable!)
+            const mileageInput = document.getElementById('checkinMileage');
+            if (mileageInput) mileageInput.value = match.mileage;
+
+            // Select fuel type radio
+            const fuelRadio = document.querySelector(`input[name="checkinFuelType"][value="${match.fuelType}"]`);
+            if (fuelRadio) fuelRadio.checked = true;
+
+            // Set placeholder for odometer if known
+            if (match.currentOdo) {
+                const startOdo = document.getElementById('checkinStartOdo');
+                if (startOdo) startOdo.placeholder = `Last recorded: ${match.currentOdo} km`;
+            }
+            this.handleFuelTypeChange(match.fuelType);
+        }
+    },
+
+    updateOriginSiteDetails: function(siteCode) {
+        const sites = TransportDB.getSites();
+        const site = sites.find(s => s.code === siteCode);
+        const card = document.getElementById('originSiteInfoCard');
+        if (!card) return;
+
+        if (site) {
+            document.getElementById('originSiteSupervisor').textContent = site.supervisor || 'Unassigned';
+            document.getElementById('originSiteAsstManager').textContent = site.asstManager || 'Unassigned';
+            document.getElementById('originSiteManager').textContent = site.manager || 'Prabhugouda Patil';
+            document.getElementById('originSiteCustGroup').textContent = site.customerGroup || site.name;
+            card.classList.remove('hidden');
+        } else {
+            card.classList.add('hidden');
+        }
+    },
+
+    updateDestSiteDetails: function(siteCode) {
+        const sites = TransportDB.getSites();
+        const site = sites.find(s => s.code === siteCode);
+        const card = document.getElementById('destSiteInfoCard');
+        if (!card) return;
+
+        if (site) {
+            document.getElementById('destSiteSupervisor').textContent = site.supervisor || 'Unassigned';
+            document.getElementById('destSiteAsstManager').textContent = site.asstManager || 'Unassigned';
+            card.classList.remove('hidden');
+        } else {
+            card.classList.add('hidden');
+        }
+    },
+
+    handleFuelTypeChange: function(fuelType) {
+        const rates = TransportDB.getFuelRates();
+        const rateObj = rates[fuelType] || rates.Diesel;
+        const note = document.getElementById('fuelTypeRateDisplay');
+        if (note) {
+            note.textContent = `Live ${fuelType} Rate: ₹${rateObj.rate}/${rateObj.unit}`;
+        }
+        const mileageInput = document.getElementById('checkinMileage');
+        if (mileageInput && (!mileageInput.value || mileageInput.value === '0')) {
+            mileageInput.value = rateObj.avgMileage || 10;
+        }
+    },
+
+    handlePhotoUpload: function(file, type) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const base64 = e.target.result;
+            if (type === 'start') {
+                this.startPhotoBase64 = base64;
+                const thumb = document.getElementById('startPhotoPreview');
+                if (thumb) {
+                    thumb.src = base64;
+                    thumb.classList.remove('hidden');
+                }
+            } else {
+                this.endPhotoBase64 = base64;
+                const thumb = document.getElementById('endPhotoPreview');
+                if (thumb) {
+                    thumb.src = base64;
+                    thumb.classList.remove('hidden');
+                }
+            }
+        };
+        reader.readAsDataURL(file);
+    },
+
+    handleDriverCheckIn: function() {
+        try {
+            // Driver Identification
+            const driverSelect = document.getElementById('checkinDriverSelect');
+            const customDriverName = document.getElementById('checkinCustomDriverName')?.value.trim();
+            const customDriverPhone = document.getElementById('checkinCustomDriverPhone')?.value.trim();
+
+            let driverName = '';
+            let driverPhone = '';
+
+            if (driverSelect && driverSelect.value === '__NEW__') {
+                if (!customDriverName) throw new Error("Please enter the new Driver's Name.");
+                driverName = customDriverName;
+                driverPhone = customDriverPhone;
+            } else if (customDriverName) {
+                driverName = customDriverName;
+                driverPhone = customDriverPhone;
+            } else if (driverSelect && driverSelect.value) {
+                driverName = driverSelect.value;
+                const selectedOpt = driverSelect.options[driverSelect.selectedIndex];
+                driverPhone = selectedOpt ? selectedOpt.getAttribute('data-phone') : '';
+            }
+
+            if (!driverName) throw new Error("Please select or enter Driver Name.");
+
+            // Vehicle Identification
+            const vehSelect = document.getElementById('checkinVehicleSelect');
+            const customPlate = document.getElementById('checkinCustomPlate')?.value.trim();
+            let vehiclePlate = '';
+
+            if (vehSelect && vehSelect.value === '__NEW__') {
+                if (!customPlate) throw new Error("Please enter the new Vehicle Plate Number.");
+                vehiclePlate = customPlate.toUpperCase().replace(/\s+/g, '');
+            } else if (customPlate) {
+                vehiclePlate = customPlate.toUpperCase().replace(/\s+/g, '');
+            } else if (vehSelect && vehSelect.value) {
+                vehiclePlate = vehSelect.value;
+            }
+
+            if (!vehiclePlate) throw new Error("Please select or enter Vehicle Plate Number.");
+
+            const fuelType = document.querySelector('input[name="checkinFuelType"]:checked')?.value || 'Diesel';
+            const mileage = parseFloat(document.getElementById('checkinMileage')?.value) || 10.0;
+            const originCode = document.getElementById('checkinOriginSelect')?.value;
+            const startOdo = document.getElementById('checkinStartOdo')?.value;
+            const notes = document.getElementById('checkinNotes')?.value.trim();
+
+            if (!originCode) throw new Error("Please select the Departure / Origin Site.");
+            if (!startOdo || isNaN(startOdo)) throw new Error("Please enter a valid Starting Meter Reading.");
+
+            const sites = TransportDB.getSites();
+            const originSite = sites.find(s => s.code === originCode) || {
+                code: originCode,
+                name: originCode,
+                supervisor: 'Unassigned',
+                asstManager: 'Unassigned'
+            };
+
+            const newTrip = TransportDB.checkInTrip({
+                driverName,
+                driverPhone,
+                vehiclePlate,
+                fuelType,
+                mileage,
+                originSiteCode: originSite.code,
+                originSiteName: originSite.name,
+                originSupervisor: originSite.supervisor,
+                originAsstManager: originSite.asstManager,
+                startOdo,
+                startPhoto: this.startPhotoBase64,
+                notes
+            });
+
+            document.getElementById('driverCheckinForm').reset();
+            document.getElementById('checkinCustomDriverBox')?.classList.add('hidden');
+            document.getElementById('checkinCustomVehicleBox')?.classList.add('hidden');
+            this.startPhotoBase64 = null;
+            document.getElementById('startPhotoPreview')?.classList.add('hidden');
+            document.getElementById('originSiteInfoCard')?.classList.add('hidden');
+
+            this.showNotification(`Trip Started! Vehicle ${newTrip.vehiclePlate} is In Transit.`, 'success');
+            this.refreshAll();
+        } catch (err) {
+            this.showNotification(err.message, 'error');
+        }
+    },
+
+    renderActiveTrips: function() {
+        const container = document.getElementById('activeTripsContainer');
+        const activeTripsCount = document.getElementById('activeTripsCountBadge');
+        if (!container) return;
+
+        const activeTrips = TransportDB.getActiveTrips();
+        if (activeTripsCount) {
+            activeTripsCount.textContent = `${activeTrips.length} Active Trip${activeTrips.length === 1 ? '' : 's'}`;
+        }
+
+        if (activeTrips.length === 0) {
+            container.innerHTML = `
+                <div class="text-center py-12 px-4 bg-slate-900/60 rounded-3xl border border-dashed border-slate-800">
+                    <div class="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto mb-3 text-lg">
+                        <i class="fa-solid fa-truck-moving"></i>
+                    </div>
+                    <h4 class="font-bold text-white text-base">No Active Trips in Transit</h4>
+                    <p class="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                        Vehicles that check in will appear here with live transit tracking. Complete a check-in to begin.
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = activeTrips.map(trip => {
+            const checkInDate = new Date(trip.checkInTime);
+            const timeStr = checkInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const dateStr = checkInDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
+
+            return `
+                <div class="bg-slate-900/95 border border-blue-500/30 rounded-3xl p-5 shadow-2xl space-y-4 hover:border-blue-500/50 transition">
+                    <div class="flex items-start justify-between">
+                        <div class="flex items-center gap-3">
+                            <div class="w-11 h-11 rounded-2xl bg-blue-600/20 border border-blue-500/40 text-blue-400 flex items-center justify-center text-lg">
+                                <i class="fa-solid fa-truck-fast"></i>
+                            </div>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <h3 class="font-bold text-white text-base font-mono">${trip.vehiclePlate}</h3>
+                                    <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse">
+                                        ● IN TRANSIT
+                                    </span>
+                                </div>
+                                <p class="text-xs text-slate-300 font-semibold mt-0.5">
+                                    <i class="fa-solid fa-user text-blue-400 mr-1"></i> ${trip.driverName} ${trip.driverPhone ? `<span class="text-slate-400 text-[11px]">(${trip.driverPhone})</span>` : ''}
+                                </p>
+                            </div>
+                        </div>
+                        <div class="text-right text-[11px] text-slate-400">
+                            <div class="font-bold text-slate-200">${timeStr}</div>
+                            <div>${dateStr}</div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 bg-slate-950/70 p-3 rounded-2xl border border-slate-800 text-xs">
+                        <div>
+                            <div class="text-[10px] text-slate-400 uppercase font-semibold">Origin / Departure</div>
+                            <div class="font-bold text-blue-400 font-mono text-[11px] truncate">[${trip.originSiteCode}] ${trip.originSiteName}</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5">Sup: ${trip.originSupervisor}</div>
+                        </div>
+                        <div class="border-l border-slate-800/80 pl-2">
+                            <div class="text-[10px] text-slate-400 uppercase font-semibold">Start Meter & Mileage</div>
+                            <div class="font-bold text-slate-200 font-mono text-xs">${trip.startOdo} km</div>
+                            <div class="text-[10px] text-emerald-400">${trip.mileage} km/L (${trip.fuelType})</div>
+                        </div>
+                    </div>
+
+                    <div class="pt-1">
+                        <div class="text-[11px] text-slate-400 mb-1.5 flex items-center gap-1.5 font-medium">
+                            <i class="fa-solid fa-location-dot text-emerald-400"></i> Vehicle is en route. When arrived, tap below:
+                        </div>
+                        <button onclick="App.openCheckOutModal('${trip.id}')" class="w-full py-3 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-950/50 transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-flag-checkered"></i> Reached Destination? Select Destination & Check Out
+                        </button>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    },
+
+    openCheckOutModal: function(tripId) {
+        const trip = TransportDB.getTripById(tripId);
+        if (!trip) return;
+
+        this.currentActiveTripId = tripId;
+        this.endPhotoBase64 = null;
+        document.getElementById('checkoutTripId').textContent = trip.id;
+        document.getElementById('checkoutDriverName').textContent = `${trip.driverName} ${trip.driverPhone ? `(${trip.driverPhone})` : ''}`;
+        document.getElementById('checkoutVehicle').textContent = trip.vehiclePlate;
+        document.getElementById('checkoutOrigin').textContent = `[${trip.originSiteCode}] ${trip.originSiteName}`;
+        document.getElementById('checkoutStartOdo').textContent = `${trip.startOdo} km`;
+        document.getElementById('checkoutMileage').textContent = `${trip.mileage} km/L`;
+        document.getElementById('checkoutFuelRate').textContent = `₹${trip.fuelRate}/${trip.fuelUnit} (${trip.fuelType})`;
+
+        document.getElementById('checkoutEndOdo').value = '';
+        document.getElementById('checkoutEndOdo').min = trip.startOdo;
+        document.getElementById('checkoutTolls').value = '0';
+        const checkoutNotesEl = document.getElementById('checkoutNotes');
+        if (checkoutNotesEl) checkoutNotesEl.value = '';
+        document.getElementById('endPhotoPreview')?.classList.add('hidden');
+        document.getElementById('destSiteInfoCard')?.classList.add('hidden');
+
+        document.getElementById('calcDistance').textContent = '0 km';
+        document.getElementById('calcFuelConsumed').textContent = `0 ${trip.fuelUnit}`;
+        document.getElementById('calcFuelCost').textContent = '₹0.00';
+        document.getElementById('calcTotalCost').textContent = '₹0.00';
+        document.getElementById('calcCostPerKm').textContent = '₹0.00/km';
+        document.getElementById('checkoutAnomalyWarning')?.classList.add('hidden');
+
+        // Apply role view inside modal
+        this.applyRoleView();
+
+        document.getElementById('checkoutModal').classList.remove('hidden');
+    },
+
+    closeCheckOutModal: function() {
+        document.getElementById('checkoutModal').classList.add('hidden');
+        this.currentActiveTripId = null;
+    },
+
+    recalculateCheckoutPreview: function() {
+        if (!this.currentActiveTripId) return;
+        const trip = TransportDB.getTripById(this.currentActiveTripId);
+        if (!trip) return;
+
+        const endOdo = parseFloat(document.getElementById('checkoutEndOdo').value);
+        const tolls = parseFloat(document.getElementById('checkoutTolls').value) || 0;
+
+        if (isNaN(endOdo) || endOdo < trip.startOdo) {
+            document.getElementById('calcDistance').textContent = 'Invalid Odo';
+            document.getElementById('calcFuelConsumed').textContent = '-';
+            document.getElementById('calcFuelCost').textContent = '-';
+            document.getElementById('calcTotalCost').textContent = '-';
+            document.getElementById('calcCostPerKm').textContent = '-';
+            return;
+        }
+
+        const metrics = TransportCalculator.calculateLiveTrip(trip.startOdo, endOdo, trip.mileage, trip.fuelRate, tolls);
+        document.getElementById('calcDistance').textContent = `${metrics.distance} km`;
+        document.getElementById('calcFuelConsumed').textContent = `${metrics.fuelConsumed} ${trip.fuelUnit}`;
+        document.getElementById('calcFuelCost').textContent = `₹${metrics.fuelCost.toLocaleString()}`;
+        document.getElementById('calcTotalCost').textContent = `₹${metrics.totalCost.toLocaleString()}`;
+        document.getElementById('calcCostPerKm').textContent = `₹${metrics.costPerKm}/km`;
+
+        const destCode = document.getElementById('checkoutDestSelect').value;
+        if (destCode) {
+            const matrix = TransportCalculator.computeSiteToSiteMatrix(TransportDB.getTrips(), TransportDB.getSites());
+            const route = matrix.find(r => r.originCode === trip.originSiteCode && r.destCode === destCode);
+            const warnEl = document.getElementById('checkoutAnomalyWarning');
+            if (route && route.count >= 2) {
+                const diff = metrics.distance - route.avgDistance;
+                if (Math.abs(diff) > 5) {
+                    warnEl.textContent = `⚠️ Note: This trip distance (${metrics.distance} km) differs from historical average for this route (${route.avgDistance} km).`;
+                    warnEl.classList.remove('hidden');
+                } else {
+                    warnEl.classList.add('hidden');
+                }
+            } else {
+                warnEl?.classList.add('hidden');
+            }
+        }
+    },
+
+    handleDriverCheckOut: function() {
+        try {
+            if (!this.currentActiveTripId) throw new Error("No active trip selected.");
+
+            const destCode = document.getElementById('checkoutDestSelect').value;
+            const endOdo = document.getElementById('checkoutEndOdo').value;
+            const tolls = document.getElementById('checkoutTolls').value;
+            const notes = document.getElementById('checkoutNotes')?.value.trim() || '';
+
+            if (!destCode) throw new Error("Please select the Destination / Arrival Site.");
+            if (!endOdo || isNaN(endOdo)) throw new Error("Please enter ending meter reading.");
+
+            const sites = TransportDB.getSites();
+            const destSite = sites.find(s => s.code === destCode) || {
+                code: destCode,
+                name: destCode,
+                supervisor: 'Unassigned',
+                asstManager: 'Unassigned'
+            };
+
+            const completedTrip = TransportDB.checkOutTrip(this.currentActiveTripId, {
+                destSiteCode: destSite.code,
+                destSiteName: destSite.name,
+                destSupervisor: destSite.supervisor,
+                destAsstManager: destSite.asstManager,
+                endOdo,
+                tollsAndMisc: tolls,
+                endPhoto: this.endPhotoBase64,
+                notes
+            });
+
+            this.closeCheckOutModal();
+            this.showNotification(`Trip ${completedTrip.id} Completed! Logged ${completedTrip.distance} km.`, 'success');
+            this.refreshAll();
+        } catch (err) {
+            this.showNotification(err.message, 'error');
+        }
+    },
+
+    // --- FLEET & VEHICLE MANAGEMENT ---
+    handleAddVehicle: function() {
+        const plate = document.getElementById('newVehiclePlate')?.value.trim();
+        const fuelType = document.getElementById('newVehicleFuelType')?.value;
+        const mileage = document.getElementById('newVehicleMileage')?.value;
+
+        if (!plate) { this.showNotification('Enter vehicle plate number.', 'error'); return; }
+        if (!mileage || isNaN(mileage) || parseFloat(mileage) <= 0) { this.showNotification('Enter valid mileage (km/L).', 'error'); return; }
+
+        try {
+            TransportDB.addVehicle(plate, fuelType, mileage);
+            document.getElementById('newVehiclePlate').value = '';
+            document.getElementById('newVehicleMileage').value = '';
+            this.showNotification(`Vehicle ${plate.toUpperCase()} added to fleet!`, 'success');
+            this.renderVehicleFleet();
+            this.populateDropdowns();
+        } catch (e) {
+            this.showNotification(e.message, 'error');
+        }
+    },
+
+    handleUpdateVehicleMileage: function(plate, inputEl) {
+        const newMileage = parseFloat(inputEl.value);
+        if (isNaN(newMileage) || newMileage <= 0) {
+            this.showNotification('Please enter a valid mileage number (e.g. 10.0)', 'error');
+            return;
+        }
+        try {
+            TransportDB.updateVehicle(plate, { mileage: newMileage });
+            this.showNotification(`Updated ${plate} average to ${newMileage} km/L`, 'success');
+            this.populateDropdowns();
+        } catch (e) {
+            this.showNotification(e.message, 'error');
+        }
+    },
+
+    handleDeleteVehicle: function(plate) {
+        if (!confirm(`Remove vehicle ${plate} from fleet list?`)) return;
+        TransportDB.deleteVehicle(plate);
+        this.showNotification(`Vehicle ${plate} removed.`, 'success');
+        this.renderVehicleFleet();
+        this.populateDropdowns();
+    },
+
+    renderVehicleFleet: function() {
+        const container = document.getElementById('vehicleFleetList');
+        if (!container) return;
+        const vehicles = TransportDB.getVehicles();
+        if (!vehicles || vehicles.length === 0) {
+            container.innerHTML = '<p class="text-slate-500 text-xs text-center py-4">No vehicles registered yet.</p>';
+            return;
+        }
+
+        container.innerHTML = vehicles.map(v => `
+            <div class="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-3.5 hover:border-slate-700 transition">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center text-base">
+                        <i class="fa-solid fa-truck"></i>
+                    </div>
+                    <div>
+                        <div class="font-bold text-white font-mono text-sm tracking-wide">${v.plate}</div>
+                        <div class="text-[11px] text-slate-400">${v.fuelType} · Transport Vehicle</div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-1.5 bg-slate-900 border border-slate-700 rounded-xl px-2 py-1">
+                        <span class="text-[10px] text-slate-400 font-semibold">Avg:</span>
+                        <input type="number" step="0.1" min="1" max="40" value="${v.mileage}"
+                            class="w-16 bg-slate-950 border border-slate-700 rounded-lg px-2 py-1 text-emerald-300 font-mono text-xs font-bold text-center focus:outline-none focus:border-emerald-500"
+                            title="Average km/L (editable)"
+                            onchange="App.handleUpdateVehicleMileage('${v.plate}', this)">
+                        <span class="text-[10px] text-slate-400">km/L</span>
+                    </div>
+                    <button onclick="App.handleDeleteVehicle('${v.plate}')" class="w-8 h-8 rounded-xl bg-rose-950/40 text-rose-400 hover:bg-rose-900/60 border border-rose-900/50 flex items-center justify-center transition" title="Delete Vehicle">
+                        <i class="fa-solid fa-trash text-xs"></i>
+                    </button>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    // --- DRIVERS MANAGEMENT ---
+    handleAddDriver: function() {
+        const name = document.getElementById('newDriverName')?.value.trim();
+        const phone = document.getElementById('newDriverPhone')?.value.trim();
+
+        if (!name) { this.showNotification('Enter driver name.', 'error'); return; }
+
+        try {
+            TransportDB.addDriver(name, phone);
+            document.getElementById('newDriverName').value = '';
+            document.getElementById('newDriverPhone').value = '';
+            this.showNotification(`Driver "${name}" saved!`, 'success');
+            this.renderDriversList();
+            this.populateDropdowns();
+        } catch (e) {
+            this.showNotification(e.message, 'error');
+        }
+    },
+
+    handleDeleteDriver: function(idOrName) {
+        if (!confirm(`Delete driver record?`)) return;
+        TransportDB.deleteDriver(idOrName);
+        this.showNotification('Driver removed.', 'success');
+        this.renderDriversList();
+        this.populateDropdowns();
+    },
+
+    renderDriversList: function() {
+        const container = document.getElementById('driversListContainer');
+        if (!container) return;
+        const drivers = TransportDB.getDrivers();
+        if (!drivers || drivers.length === 0) {
+            container.innerHTML = '<p class="text-slate-500 text-xs text-center py-4">No drivers registered yet. Add driver above or enter during check-in.</p>';
+            return;
+        }
+
+        container.innerHTML = drivers.map(d => `
+            <div class="flex items-center justify-between bg-slate-950 border border-slate-800 rounded-2xl p-3 hover:border-slate-700 transition text-xs">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center text-xs">
+                        <i class="fa-solid fa-id-card"></i>
+                    </div>
+                    <div>
+                        <div class="font-bold text-white text-xs">${d.name}</div>
+                        <div class="text-[11px] text-slate-400"><i class="fa-solid fa-phone text-[10px] text-emerald-400 mr-1"></i>${d.phone || 'No Mobile'}</div>
+                    </div>
+                </div>
+                <button onclick="App.handleDeleteDriver('${d.id || d.name}')" class="w-7 h-7 rounded-lg bg-rose-950/30 text-rose-400 hover:bg-rose-900/50 border border-rose-900/40 flex items-center justify-center transition" title="Delete Driver">
+                    <i class="fa-solid fa-trash text-[11px]"></i>
+                </button>
+            </div>
+        `).join('');
+    },
+
+    // --- SITE-TO-SITE MATRIX ---
+    renderSiteMatrix: function() {
+        const container = document.getElementById('siteMatrixContainer') || document.getElementById('matrixTableBody');
+        const countBadge = document.getElementById('matrixRoutesCount');
+        if (!container) return;
+
+        const trips = TransportDB.getTrips();
+        const sites = TransportDB.getSites();
+        const routes = TransportCalculator.computeSiteToSiteMatrix(trips, sites);
+
+        if (countBadge) countBadge.textContent = `${routes.length} Route${routes.length === 1 ? '' : 's'}`;
+
+        if (routes.length === 0) {
+            container.innerHTML = `
+                <div class="col-span-full text-center py-16 px-4 bg-slate-900/60 rounded-3xl border border-dashed border-slate-800">
+                    <div class="w-12 h-12 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center mx-auto mb-3 text-lg">
+                        <i class="fa-solid fa-route"></i>
+                    </div>
+                    <h4 class="font-bold text-white text-base">No Completed Site-to-Site Routes Yet</h4>
+                    <p class="text-xs text-slate-400 mt-1 max-w-md mx-auto">
+                        As drivers complete trips between facilities, route averages, fuel costs, distance benchmarks, and anomaly alerts will appear here automatically.
+                    </p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = routes.map(r => `
+            <div class="bg-slate-900/90 border border-slate-800 hover:border-blue-500/40 rounded-3xl p-5 shadow-xl transition space-y-4 flex flex-col justify-between">
+                <div>
+                    <!-- Route Header -->
+                    <div class="flex items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                        <span class="bg-blue-500/20 text-blue-300 font-mono text-[11px] font-bold px-2.5 py-1 rounded-xl border border-blue-500/30">
+                            ${r.tripCount} Trip${r.tripCount === 1 ? '' : 's'} Logged
+                        </span>
+                        <span class="font-mono font-bold text-emerald-400 text-sm">
+                            ₹${r.totalCost.toLocaleString()} <span class="text-[10px] text-slate-400 font-normal">Total</span>
+                        </span>
+                    </div>
+
+                    <!-- Origin to Destination Visual -->
+                    <div class="space-y-2 mt-3 text-xs">
+                        <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+                            <div class="text-[10px] text-blue-400 uppercase font-semibold">Origin Site</div>
+                            <div class="font-bold text-white text-xs truncate">[${r.originCode}] ${r.originSiteName}</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5"><i class="fa-solid fa-user-tie text-emerald-400 mr-1"></i>Sup: ${r.originSupervisor || 'Unassigned'}</div>
+                        </div>
+
+                        <div class="flex items-center justify-center text-slate-500 text-xs py-0.5">
+                            <i class="fa-solid fa-arrow-down"></i>
+                        </div>
+
+                        <div class="bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+                            <div class="text-[10px] text-emerald-400 uppercase font-semibold">Destination Site</div>
+                            <div class="font-bold text-white text-xs truncate">[${r.destCode}] ${r.destSiteName}</div>
+                            <div class="text-[10px] text-slate-400 mt-0.5"><i class="fa-solid fa-user-tie text-blue-400 mr-1"></i>Sup: ${r.destSupervisor || 'Unassigned'}</div>
+                        </div>
+                    </div>
+
+                    <!-- Metrics Grid -->
+                    <div class="grid grid-cols-3 gap-2 mt-3 bg-slate-950 p-2.5 rounded-xl border border-slate-800 text-center">
+                        <div>
+                            <div class="text-[10px] text-slate-400">Avg Distance</div>
+                            <div class="font-bold text-white font-mono text-xs">${r.avgDistance} km</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-slate-400">Avg Cost/Trip</div>
+                            <div class="font-bold text-blue-400 font-mono text-xs">₹${r.avgTotalCost.toFixed(2)}</div>
+                        </div>
+                        <div>
+                            <div class="text-[10px] text-slate-400">Rate / km</div>
+                            <div class="font-bold text-purple-400 font-mono text-xs">₹${r.avgCostPerKm}/km</div>
+                        </div>
+                    </div>
+                </div>
+
+                ${r.anomalyCount > 0 ? `
+                    <div class="bg-amber-950/40 border border-amber-800/60 p-2 rounded-xl text-amber-300 text-[10px] flex items-center gap-1.5">
+                        <i class="fa-solid fa-triangle-exclamation"></i>
+                        <span>${r.anomalyCount} trip(s) deviated >20% from route benchmark</span>
+                    </div>
+                ` : ''}
+            </div>
+        `).join('');
+    },
+
+    // --- TRIP LEDGER TABLE ---
+    renderTripTable: function() {
+        const container = document.getElementById('tripTableBody');
+        const countBadge = document.getElementById('tripsFilteredCount');
+        if (!container) return;
+
+        const allTrips = TransportDB.getTrips();
+        const trips = TransportCalculator.filterTrips(allTrips, this.tripFilters);
+
+        if (countBadge) countBadge.textContent = `${trips.length} of ${allTrips.length} Trips`;
+
+        if (trips.length === 0) {
+            container.innerHTML = `
+                <tr>
+                    <td colspan="10" class="text-center py-12 text-slate-500 text-xs">
+                        No trips found matching the selected filters.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
+        container.innerHTML = trips.map(t => {
+            const checkInDate = new Date(t.checkInTime);
+            const timeStr = checkInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const dateStr = checkInDate.toLocaleDateString([], { month: 'numeric', day: 'numeric', year: 'numeric' });
+
+            const isComp = t.status === 'COMPLETED';
+
+            return `
+                <tr class="border-b border-slate-800/80 hover:bg-slate-800/30 transition text-xs">
+                    <td class="py-3.5 px-4 font-mono font-bold text-blue-400">${t.id}</td>
+                    <td class="py-3.5 px-4 text-slate-300">
+                        <div>${dateStr}</div>
+                        <div class="text-[10px] text-slate-500">${timeStr}</div>
+                    </td>
+                    <td class="py-3.5 px-4 font-semibold text-white">
+                        <div>${t.driverName}</div>
+                        ${t.driverPhone ? `<div class="text-[10px] text-slate-400 font-mono">${t.driverPhone}</div>` : ''}
+                    </td>
+                    <td class="py-3.5 px-4">
+                        <div class="font-mono text-slate-200 font-semibold">${t.vehiclePlate}</div>
+                        <div class="text-[10px] text-amber-400">${t.fuelType} (₹${t.fuelRate})</div>
+                    </td>
+                    <td class="py-3.5 px-4 text-[11px]">
+                        <div class="flex items-center gap-1.5 text-blue-300 truncate max-w-xs font-semibold">
+                            <span class="w-1.5 h-1.5 rounded-full bg-blue-400"></span> [${t.originSiteCode}] ${t.originSiteName}
+                        </div>
+                        <div class="text-[10px] text-slate-400 pl-3">Supervisor: <strong>${t.originSupervisor || 'N/A'}</strong> | Asst. Mgr: ${t.originAsstManager || 'N/A'}</div>
+                        ${isComp ? `
+                            <div class="flex items-center gap-1.5 text-emerald-300 truncate max-w-xs font-semibold mt-1">
+                                <i class="fa-solid fa-arrow-right text-[9px] text-slate-500"></i> [${t.destSiteCode}] ${t.destSiteName}
+                            </div>
+                        ` : '<div class="text-[10px] text-amber-400 font-semibold mt-1">En Route...</div>'}
+                    </td>
+                    <td class="py-3.5 px-4 font-mono">
+                        ${isComp ? `
+                            <div class="font-bold text-slate-200">${t.distance} km</div>
+                            <div class="text-[10px] text-slate-500">${t.startOdo} → ${t.endOdo}</div>
+                        ` : `<div class="text-slate-400">${t.startOdo} km</div>`}
+                    </td>
+                    <td class="py-3.5 px-4 font-mono">
+                        ${isComp ? `
+                            <div class="font-semibold text-slate-200">${t.fuelConsumed} ${t.fuelUnit || 'L'}</div>
+                            <div class="text-[10px] text-slate-500">${t.mileage} km/L</div>
+                        ` : '-'}
+                    </td>
+                    <td class="py-3.5 px-4 font-mono">
+                        ${isComp ? `
+                            <div class="font-bold text-emerald-400">₹${t.totalCost.toFixed(2)}</div>
+                            <div class="text-[10px] text-slate-400">₹${t.costPerKm}/km</div>
+                        ` : '-'}
+                    </td>
+                    <td class="py-3.5 px-4">
+                        ${t.startPhoto || t.endPhoto ? `
+                            <button onclick="App.viewTripPhotos('${t.id}')" class="px-2.5 py-1 rounded-xl bg-blue-950 text-blue-300 border border-blue-800 text-[11px] font-semibold hover:bg-blue-900 transition flex items-center gap-1">
+                                <i class="fa-solid fa-camera"></i> Photos
+                            </button>
+                        ` : '<span class="text-slate-600 text-[11px]">None</span>'}
+                    </td>
+                    <td class="py-3.5 px-4">
+                        ${isComp ? (
+                            t.isVerified ? `
+                                <span class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800" title="Verified by ${t.verifiedBy}">
+                                    <i class="fa-solid fa-circle-check text-[10px]"></i> Verified
+                                </span>
+                            ` : `
+                                <button onclick="App.verifyTripModal('${t.id}')" class="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-amber-950 text-amber-300 border border-amber-800 hover:bg-amber-900 transition">
+                                    <i class="fa-solid fa-check"></i> Verify
+                                </button>
+                            `
+                        ) : '<span class="text-slate-500 text-[11px]">In Transit</span>'}
+                    </td>
+                    <td class="py-3.5 px-4 text-right">
+                        <div class="flex items-center justify-end gap-1.5">
+                            ${isComp ? `
+                                <button onclick="App.printTrip('${t.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Print Slip">
+                                    <i class="fa-solid fa-print"></i>
+                                </button>
+                            ` : ''}
+                            <button onclick="App.deleteTrip('${t.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition" title="Delete">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+    },
+
+    handleFilterChange: function() {
+        this.tripFilters.status = document.getElementById('filterStatus')?.value || 'ALL';
+        this.tripFilters.originCode = document.getElementById('filterOrigin')?.value || 'ALL';
+        this.tripFilters.destCode = document.getElementById('filterDest')?.value || 'ALL';
+        this.tripFilters.fuelType = document.getElementById('filterFuelType')?.value || 'ALL';
+        this.tripFilters.dateFrom = document.getElementById('filterDateFrom')?.value || '';
+        this.tripFilters.dateTo = document.getElementById('filterDateTo')?.value || '';
+        this.tripFilters.search = document.getElementById('filterSearch')?.value || '';
+        this.renderTripTable();
+    },
+
+    verifyTripModal: function(tripId) {
+        const trip = TransportDB.getTripById(tripId);
+        if (!trip) return;
+
+        const supervisorName = trip.destSupervisor || trip.originSupervisor || 'Site Supervisor';
+        TransportDB.verifyTrip(tripId, supervisorName);
+        this.showNotification(`Trip ${trip.id} verified by ${supervisorName}.`, 'success');
+        this.refreshAll();
+    },
+
+    printTrip: function(tripId) {
+        const trip = TransportDB.getTripById(tripId);
+        if (trip) AppExporter.printTripSlip(trip);
+    },
+
+    deleteTrip: function(tripId) {
+        if (confirm(`Delete trip record ${tripId}?`)) {
+            TransportDB.deleteTrip(tripId);
+            this.showNotification(`Trip ${tripId} removed.`, 'success');
+            this.refreshAll();
+        }
+    },
+
+    viewTripPhotos: function(tripId) {
+        const trip = TransportDB.getTripById(tripId);
+        if (!trip) return;
+        let html = '';
+        if (trip.startPhoto) html += `<div><h5 class="font-bold text-slate-300 text-xs mb-1">Departure Meter Photo</h5><img src="${trip.startPhoto}" class="rounded-xl border border-slate-700 max-h-64 object-cover"/></div>`;
+        if (trip.endPhoto) html += `<div><h5 class="font-bold text-slate-300 text-xs mb-1">Arrival Meter Photo</h5><img src="${trip.endPhoto}" class="rounded-xl border border-slate-700 max-h-64 object-cover"/></div>`;
+        
+        const modal = document.createElement('div');
+        modal.className = "fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4";
+        modal.innerHTML = `
+            <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 space-y-4">
+                <div class="flex items-center justify-between pb-2 border-b border-slate-800">
+                    <h3 class="font-bold text-white text-sm">Meter Verification Photos - ${trip.id}</h3>
+                    <button onclick="this.closest('.fixed').remove()" class="text-slate-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+                <div class="space-y-3">${html}</div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    },
+
+    renderFleetKPIs: function() {
+        const trips = TransportDB.getTrips();
+        const kpis = TransportCalculator.computeFleetKPIs(trips);
+
+        if (document.getElementById('kpiTotalSpend')) document.getElementById('kpiTotalSpend').textContent = `₹${kpis.totalCost.toLocaleString()}`;
+        if (document.getElementById('kpiTotalDistance')) document.getElementById('kpiTotalDistance').textContent = `${kpis.totalDistance.toLocaleString()} km`;
+        if (document.getElementById('kpiTotalFuel')) document.getElementById('kpiTotalFuel').textContent = `${kpis.totalFuelConsumed.toLocaleString()} L`;
+        if (document.getElementById('kpiAvgCostPerKm')) document.getElementById('kpiAvgCostPerKm').textContent = `₹${kpis.avgCostPerKm}/km`;
+        if (document.getElementById('kpiCompletedCount')) document.getElementById('kpiCompletedCount').textContent = `${kpis.completedTripsCount} Trips`;
+        if (document.getElementById('kpiActiveCount')) document.getElementById('kpiActiveCount').textContent = `${kpis.activeTripsCount} Active`;
+    },
+
+    updateAutoSiteCodeSuggestion: function() {
+        const codeInput = document.getElementById('siteCode');
+        if (codeInput) {
+            const nextCode = TransportDB.getNextSiteCode();
+            codeInput.value = nextCode;
+            codeInput.placeholder = nextCode;
+        }
+    },
+
+    handleAddSite: function() {
+        const name = document.getElementById('siteName').value.trim();
+        const code = document.getElementById('siteCode').value.trim();
+        const supervisor = document.getElementById('siteSupervisor').value.trim();
+        const asstManager = document.getElementById('siteAsstManager').value.trim();
+        const manager = document.getElementById('siteManager').value.trim();
+        const region = document.getElementById('siteRegion').value.trim();
+
+        if (!name) {
+            alert('Please enter site name.');
+            return;
+        }
+
+        const newSite = TransportDB.addSite({
+            name,
+            code,
+            supervisor,
+            asstManager,
+            manager,
+            region
+        });
+
+        document.getElementById('addSiteForm').reset();
+        this.updateAutoSiteCodeSuggestion();
+        this.showNotification(`Site "${newSite.name}" added with Auto Code: ${newSite.code}!`, 'success');
+        this.refreshAll();
+    },
+
+    renderSitesList: function() {
+        const container = document.getElementById('sitesListContainer');
+        const sitesCountBadge = document.getElementById('sitesTotalCountBadge');
+        if (!container) return;
+
+        const sites = TransportDB.getSites();
+        if (sitesCountBadge) {
+            sitesCountBadge.textContent = `${sites.length} Facilities in System`;
+        }
+
+        container.innerHTML = sites.slice(0, 30).map(s => `
+            <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col justify-between text-xs hover:border-slate-700 transition">
+                <div>
+                    <div class="flex items-center justify-between mb-2">
+                        <span class="bg-blue-950 text-blue-400 font-mono font-bold px-2 py-0.5 rounded text-[11px] border border-blue-900">${s.code}</span>
+                        <span class="text-[10px] text-slate-500 uppercase font-semibold">${s.salesModel || 'PAAS'} • ${s.region || 'GTS'}</span>
+                    </div>
+                    <h4 class="font-bold text-white text-sm mb-1">${s.name}</h4>
+                    <div class="space-y-1 text-[11px] text-slate-400 bg-slate-950/70 p-2.5 rounded-xl border border-slate-800/80 mt-2">
+                        <div><i class="fa-solid fa-user-tie text-emerald-400 mr-1"></i> Supervisor: <strong class="text-slate-200">${s.supervisor || 'Unassigned'}</strong></div>
+                        <div><i class="fa-solid fa-user-gear text-blue-400 mr-1"></i> Asst. Manager: <strong class="text-slate-200">${s.asstManager || 'Unassigned'}</strong></div>
+                        <div><i class="fa-solid fa-building-user text-purple-400 mr-1"></i> Manager: <strong class="text-slate-200">${s.manager || 'Prabhugouda Patil'}</strong></div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    handleExcelImport: function(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheetName = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheetName];
+                const jsonData = XLSX.utils.sheet_to_json(worksheet);
+
+                const sites = [];
+                jsonData.forEach((row, idx) => {
+                    const code = row['Site code'] || row['Site Code'] || `HYD${(idx + 1).toString().padStart(3, '0')}`;
+                    const name = row['Site Name'] || row['Site name'] || row['Client Name'] || `Facility Site ${idx + 1}`;
+                    if (name) {
+                        sites.push({
+                            id: `site-excel-${idx}`,
+                            code: String(code).trim().toUpperCase(),
+                            name: String(name).trim(),
+                            supervisor: row['Supervisor'] || 'Unassigned',
+                            asstManager: row['Assistant Manager'] || row['Asst Manager'] || 'Unassigned',
+                            manager: row['Manager'] || 'Prabhugouda Patil',
+                            salesModel: row['Sales Model'] || 'PAAS',
+                            region: row['Region'] || 'GTS',
+                            serviceProvider: row['Service Provider'] || 'GAMLAA',
+                            customerGroup: row['Customer Group'] || name.split(' ')[0],
+                            status: 'ACTIVE'
+                        });
+                    }
+                });
+
+                if (sites.length > 0) {
+                    TransportDB.saveSites(sites);
+                    this.showNotification(`Successfully imported ${sites.length} facility sites from Excel!`, 'success');
+                    this.refreshAll();
+                } else {
+                    throw new Error("No site rows found in Excel.");
+                }
+            } catch (err) {
+                this.showNotification(`Excel import failed: ${err.message}`, 'error');
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    },
+
+    renderFuelRatesForm: function() {
+        const rates = TransportDB.getFuelRates();
+        if (document.getElementById('rateDiesel')) document.getElementById('rateDiesel').value = rates.Diesel?.rate || 92.50;
+        if (document.getElementById('ratePetrol')) document.getElementById('ratePetrol').value = rates.Petrol?.rate || 104.20;
+        if (document.getElementById('rateCNG')) document.getElementById('rateCNG').value = rates.CNG?.rate || 84.00;
+        if (document.getElementById('rateElectric')) document.getElementById('rateElectric').value = rates.Electric?.rate || 12.50;
+    },
+
+    handleSaveFuelRates: function() {
+        const rates = {
+            Diesel: { rate: parseFloat(document.getElementById('rateDiesel').value), unit: 'Litre', currency: '₹', avgMileage: 10.0 },
+            Petrol: { rate: parseFloat(document.getElementById('ratePetrol').value), unit: 'Litre', currency: '₹', avgMileage: 14.5 },
+            CNG: { rate: parseFloat(document.getElementById('rateCNG').value), unit: 'Kg', currency: '₹', avgMileage: 18.0 },
+            Electric: { rate: parseFloat(document.getElementById('rateElectric').value), unit: 'kWh', currency: '₹', avgMileage: 7.5 }
+        };
+        TransportDB.saveFuelRates(rates);
+        this.showNotification('Market fuel rates updated successfully!', 'success');
+        this.handleFuelTypeChange(document.querySelector('input[name="checkinFuelType"]:checked')?.value || 'Diesel');
+    },
+
+    startTimer: function() {
+        setInterval(() => {
+            if (this.currentTab === 'driver') {
+                const badge = document.getElementById('activeTripsCountBadge');
+                if (badge && TransportDB.getActiveTrips().length > 0) {
+                    // subtle live pulse
+                }
+            }
+        }, 10000);
+    },
+
+    showNotification: function(msg, type = 'info') {
+        const el = document.getElementById('appNotification');
+        if (!el) return;
+
+        let bg = 'bg-blue-600';
+        let icon = '<i class="fa-solid fa-info-circle"></i>';
+        if (type === 'success') {
+            bg = 'bg-emerald-600';
+            icon = '<i class="fa-solid fa-circle-check"></i>';
+        } else if (type === 'error') {
+            bg = 'bg-rose-600';
+            icon = '<i class="fa-solid fa-circle-exclamation"></i>';
+        }
+
+        el.innerHTML = `${icon} <span>${msg}</span>`;
+        el.className = `fixed bottom-6 right-6 z-50 ${bg} text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 font-semibold text-xs transition transform duration-300`;
+        el.classList.remove('hidden', 'translate-y-12', 'opacity-0');
+
+        setTimeout(() => {
+            el.classList.add('translate-y-12', 'opacity-0');
+            setTimeout(() => el.classList.add('hidden'), 300);
+        }, 4000);
+    }
+};
+
+window.App = App;
