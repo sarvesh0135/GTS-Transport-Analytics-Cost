@@ -7107,18 +7107,38 @@ const FirebaseSync = {
         }
     },
 
+    sanitizeForFirestore: function(obj) {
+        if (!obj || typeof obj !== 'object') return obj;
+        const clean = {};
+        for (const [key, val] of Object.entries(obj)) {
+            if (val === undefined) {
+                clean[key] = null;
+            } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+                clean[key] = this.sanitizeForFirestore(val);
+            } else {
+                clean[key] = val;
+            }
+        }
+        return clean;
+    },
+
     syncTrip: function(trip) {
         if (!this.isInitialized || !this.db || !trip || !trip.id) return;
-        this.db.collection('trips').doc(trip.id).set(trip, { merge: true })
-            .then(() => {
-                console.log('[FirebaseSync] Successfully synced trip to cloud:', trip.id);
-            })
-            .catch(err => {
-                console.error('[FirebaseSync] Error syncing trip to cloud:', err);
-                if (err.code === 'permission-denied' && window.App) {
-                    window.App.showNotification('Firestore Permission Denied. In Firebase Console > Firestore > Rules, set "allow read, write: if true;"', 'error');
-                }
-            });
+        try {
+            const cleanTrip = this.sanitizeForFirestore(trip);
+            this.db.collection('trips').doc(trip.id).set(cleanTrip, { merge: true })
+                .then(() => {
+                    console.log('[FirebaseSync] Successfully synced trip to cloud:', trip.id);
+                })
+                .catch(err => {
+                    console.error('[FirebaseSync] Error syncing trip to cloud:', err);
+                    if (window.App) {
+                        window.App.showNotification(`⚠️ Cloud Sync: ${err.message}`, 'error');
+                    }
+                });
+        } catch (e) {
+            console.error('[FirebaseSync] Sync serialization error:', e);
+        }
     },
 
     deleteTrip: function(tripId) {
