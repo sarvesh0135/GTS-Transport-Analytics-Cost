@@ -557,6 +557,107 @@ const App = {
         }
     },
 
+    handleOriginSiteSelectChange: function(val) {
+        const customBox = document.getElementById('checkinCustomOriginBox');
+        if (val === '__NEW_SITE__') {
+            if (customBox) customBox.classList.remove('hidden');
+            const card = document.getElementById('originSiteInfoCard');
+            if (card) card.classList.add('hidden');
+            const nameInput = document.getElementById('checkinCustomOriginName');
+            if (nameInput) nameInput.focus();
+        } else {
+            if (customBox) customBox.classList.add('hidden');
+            this.updateOriginSiteDetails(val);
+        }
+    },
+
+    cancelCustomOriginSite: function() {
+        const select = document.getElementById('checkinOriginSelect');
+        const customBox = document.getElementById('checkinCustomOriginBox');
+        if (customBox) customBox.classList.add('hidden');
+        if (select) select.value = '';
+        this.updateOriginSiteDetails('');
+    },
+
+    handleDestSiteSelectChange: function(val) {
+        const customBox = document.getElementById('checkoutCustomDestBox');
+        if (val === '__NEW_SITE__') {
+            if (customBox) customBox.classList.remove('hidden');
+            const card = document.getElementById('destSiteInfoCard');
+            if (card) card.classList.add('hidden');
+            const nameInput = document.getElementById('checkoutCustomDestName');
+            if (nameInput) nameInput.focus();
+        } else {
+            if (customBox) customBox.classList.add('hidden');
+            this.updateDestSiteDetails(val);
+        }
+        this.recalculateCheckoutPreview();
+    },
+
+    cancelCustomDestSite: function() {
+        const select = document.getElementById('checkoutDestSelect');
+        const customBox = document.getElementById('checkoutCustomDestBox');
+        if (customBox) customBox.classList.add('hidden');
+        if (select) select.value = '';
+        this.updateDestSiteDetails('');
+        this.recalculateCheckoutPreview();
+    },
+
+    filterOriginSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const originSelect = document.getElementById('checkinOriginSelect');
+        const countBadge = document.getElementById('originSiteCountBadge');
+        if (!originSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query)) ||
+            (s.customerGroup && s.customerGroup.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} Sites`;
+
+        let html = `<option value="">-- Search / Select Departure Site (${filtered.length} Sites) --</option>`;
+        html += `<option value="__NEW_SITE__" class="font-bold text-blue-400 bg-blue-950/40">➕ + Add New Site (Not in List)</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        originSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            originSelect.value = filtered[0].code;
+            this.updateOriginSiteDetails(filtered[0].code);
+        }
+    },
+
+    filterDestSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const destSelect = document.getElementById('checkoutDestSelect');
+        const countBadge = document.getElementById('destSiteCountBadge');
+        if (!destSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query)) ||
+            (s.customerGroup && s.customerGroup.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} Sites`;
+
+        let html = `<option value="">-- Search / Select Arrival Site (${filtered.length} Sites) --</option>`;
+        html += `<option value="__NEW_SITE__" class="font-bold text-emerald-400 bg-emerald-950/40">➕ + Add New Site (Not in List)</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        destSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            destSelect.value = filtered[0].code;
+            this.updateDestSiteDetails(filtered[0].code);
+            this.recalculateCheckoutPreview();
+        }
+    },
+
     updateOriginSiteDetails: function(siteCode) {
         const sites = TransportDB.getSites();
         const site = sites.find(s => s.code === siteCode);
@@ -703,13 +804,29 @@ const App = {
             if (!originCode) throw new Error("Please select the Departure / Origin Site.");
             if (!startOdo || isNaN(startOdo)) throw new Error("Please enter a valid Starting Meter Reading.");
 
-            const sites = TransportDB.getSites();
-            const originSite = sites.find(s => s.code === originCode) || {
-                code: originCode,
-                name: originCode,
-                supervisor: 'Unassigned',
-                asstManager: 'Unassigned'
-            };
+            let originSite = null;
+            if (originCode === '__NEW_SITE__') {
+                const customName = document.getElementById('checkinCustomOriginName')?.value.trim();
+                const customCode = document.getElementById('checkinCustomOriginCode')?.value.trim();
+                const customSup = document.getElementById('checkinCustomOriginSupervisor')?.value.trim();
+                const customLoc = document.getElementById('checkinCustomOriginLocation')?.value.trim();
+
+                if (!customName) throw new Error("Please enter the New Departure Site Name.");
+                originSite = TransportDB.addSite({
+                    name: customName,
+                    code: customCode,
+                    supervisor: customSup || 'Unassigned',
+                    location: customLoc
+                });
+            } else {
+                const sites = TransportDB.getSites();
+                originSite = sites.find(s => s.code === originCode) || {
+                    code: originCode,
+                    name: originCode,
+                    supervisor: 'Unassigned',
+                    asstManager: 'Unassigned'
+                };
+            }
 
             const newTrip = TransportDB.checkInTrip({
                 driverName,
@@ -729,11 +846,12 @@ const App = {
             document.getElementById('driverCheckinForm').reset();
             document.getElementById('checkinCustomDriverBox')?.classList.add('hidden');
             document.getElementById('checkinCustomVehicleBox')?.classList.add('hidden');
+            document.getElementById('checkinCustomOriginBox')?.classList.add('hidden');
             this.startPhotoBase64 = null;
             document.getElementById('startPhotoPreview')?.classList.add('hidden');
             document.getElementById('originSiteInfoCard')?.classList.add('hidden');
 
-            this.showNotification(`Trip Started! Vehicle ${newTrip.vehiclePlate} is In Transit.`, 'success');
+            this.showNotification(`Trip Started! Vehicle ${newTrip.vehiclePlate} is In Transit from [${originSite.code}] ${originSite.name}.`, 'success');
             this.refreshAll();
         } catch (err) {
             this.showNotification(err.message, 'error');
@@ -924,13 +1042,29 @@ const App = {
             if (!destCode) throw new Error("Please select the Destination / Arrival Site.");
             if (!endOdo || isNaN(endOdo)) throw new Error("Please enter ending meter reading.");
 
-            const sites = TransportDB.getSites();
-            const destSite = sites.find(s => s.code === destCode) || {
-                code: destCode,
-                name: destCode,
-                supervisor: 'Unassigned',
-                asstManager: 'Unassigned'
-            };
+            let destSite = null;
+            if (destCode === '__NEW_SITE__') {
+                const customName = document.getElementById('checkoutCustomDestName')?.value.trim();
+                const customCode = document.getElementById('checkoutCustomDestCode')?.value.trim();
+                const customSup = document.getElementById('checkoutCustomDestSupervisor')?.value.trim();
+                const customLoc = document.getElementById('checkoutCustomDestLocation')?.value.trim();
+
+                if (!customName) throw new Error("Please enter the New Arrival Site Name.");
+                destSite = TransportDB.addSite({
+                    name: customName,
+                    code: customCode,
+                    supervisor: customSup || 'Unassigned',
+                    location: customLoc
+                });
+            } else {
+                const sites = TransportDB.getSites();
+                destSite = sites.find(s => s.code === destCode) || {
+                    code: destCode,
+                    name: destCode,
+                    supervisor: 'Unassigned',
+                    asstManager: 'Unassigned'
+                };
+            }
 
             const completedTrip = TransportDB.checkOutTrip(this.currentActiveTripId, {
                 destSiteCode: destSite.code,
@@ -944,7 +1078,7 @@ const App = {
             });
 
             this.closeCheckOutModal();
-            this.showNotification(`Trip ${completedTrip.id} Completed! Logged ${completedTrip.distance} km.`, 'success');
+            this.showNotification(`Trip ${completedTrip.id} Completed! Reached [${destSite.code}] ${destSite.name} (${completedTrip.distance} km).`, 'success');
             this.refreshAll();
         } catch (err) {
             this.showNotification(err.message, 'error');

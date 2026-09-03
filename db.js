@@ -351,6 +351,46 @@ const TransportDB = {
         throw new Error('Trip not found');
     },
 
+    updateTrip: function(tripId, updatedFields, managerName, editReason) {
+        const trips = this.getTrips();
+        const tripIndex = trips.findIndex(t => t.id === tripId);
+        if (tripIndex === -1) throw new Error("Trip not found.");
+
+        const trip = { ...trips[tripIndex], ...updatedFields };
+
+        // Auto-recalculate distance and financials if meter readings are present
+        const startOdo = parseFloat(trip.startOdo);
+        const endOdo = parseFloat(trip.endOdo);
+        if (!isNaN(startOdo) && !isNaN(endOdo) && endOdo >= startOdo) {
+            trip.status = 'COMPLETED';
+            trip.distance = parseFloat((endOdo - startOdo).toFixed(2));
+            const mileage = parseFloat(trip.mileage) || 10.0;
+            const fuelRate = parseFloat(trip.fuelRate) || 92.50;
+            const tolls = parseFloat(trip.tollsAndMisc || 0);
+
+            trip.fuelConsumed = mileage > 0 ? parseFloat((trip.distance / mileage).toFixed(2)) : 0;
+            trip.fuelCost = parseFloat((trip.fuelConsumed * fuelRate).toFixed(2));
+            trip.totalCost = parseFloat((trip.fuelCost + tolls).toFixed(2));
+            trip.costPerKm = trip.distance > 0 ? parseFloat((trip.totalCost / trip.distance).toFixed(2)) : 0;
+        }
+
+        trip.isEdited = true;
+        trip.editedBy = (managerName || 'Manager').trim();
+        trip.editedAt = new Date().toISOString();
+        if (editReason && editReason.trim()) {
+            trip.editReason = editReason.trim();
+        }
+
+        trips[tripIndex] = trip;
+        this.saveTrips(trips);
+
+        if (typeof FirebaseSync !== 'undefined') {
+            FirebaseSync.syncTrip(trip);
+        }
+
+        return trip;
+    },
+
     deleteTrip: function(tripId) {
         let trips = this.getTrips();
         trips = trips.filter(t => t.id !== tripId);
@@ -358,23 +398,60 @@ const TransportDB = {
         if (typeof FirebaseSync !== 'undefined') FirebaseSync.deleteTrip(tripId);
     },
 
+    clearAllTrips: async function() {
+        this.saveTrips([]);
+        if (typeof FirebaseSync !== 'undefined' && FirebaseSync.isInitialized) {
+            await FirebaseSync.clearAllCloudTrips();
+        }
+    },
+
     // --- VEHICLES MANAGEMENT ---
     getVehicles: function() {
+        const vehMap = new Map();
+
+        // 1. Defaults first
+        DEFAULT_VEHICLES.forEach(v => vehMap.set(v.plate, { ...v }));
+
+        // 2. Saved vehicles from localStorage / memStore
         try {
             const raw = localStorage.getItem(DB_KEYS.VEHICLES);
             if (raw) {
                 const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    _memStore.vehicles = parsed;
-                    return parsed;
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(v => {
+                        if (v && v.plate) vehMap.set(v.plate, v);
+                    });
                 }
             }
         } catch (e) {}
-        if (Array.isArray(_memStore.vehicles) && _memStore.vehicles.length > 0) return _memStore.vehicles;
-        
-        // Initial fallback to default 4 vehicles
-        this.saveVehicles(DEFAULT_VEHICLES);
-        return DEFAULT_VEHICLES;
+
+        if (Array.isArray(_memStore.vehicles)) {
+            _memStore.vehicles.forEach(v => {
+                if (v && v.plate) vehMap.set(v.plate, v);
+            });
+        }
+
+        // 3. Harvest from cloud-synced trips
+        const trips = this.getTrips();
+        trips.forEach(t => {
+            if (t.vehiclePlate && t.vehiclePlate.trim()) {
+                const plate = t.vehiclePlate.trim().toUpperCase().replace(/\s+/g, '');
+                if (!vehMap.has(plate)) {
+                    vehMap.set(plate, {
+                        plate: plate,
+                        model: 'Transport Vehicle',
+                        type: 'Transport',
+                        fuelType: t.fuelType || 'Diesel',
+                        mileage: parseFloat(t.mileage) || 10.0,
+                        currentOdo: t.endOdo || t.startOdo || 0
+                    });
+                }
+            }
+        });
+
+        const list = Array.from(vehMap.values());
+        _memStore.vehicles = list;
+        return list;
     },
 
     saveVehicles: function(vehicles) {
@@ -447,18 +524,60 @@ const TransportDB = {
 
     // --- DRIVERS MANAGEMENT ---
     getDrivers: function() {
+        const driverMap = new Map();
+        
+        // 1. Load from saved drivers
         try {
             const raw = localStorage.getItem(DB_KEYS.DRIVERS);
             if (raw) {
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) {
-                    _memStore.drivers = parsed;
-                    return parsed;
+                    parsed.forEach(d => {
+                        if (d && d.name && d.name.trim()) {
+                            driverMap.set(d.name.trim().toLowerCase(), {
+                                id: d.id || `drv-${d.name.trim().toLowerCase().replace(/\s+/g, '_')}`,
+                                name: d.name.trim(),
+                                phone: d.phone || 'Not Provided'
+                            });
+                        }
+                    });
                 }
             }
         } catch (e) {}
-        if (Array.isArray(_memStore.drivers)) return _memStore.drivers;
-        return DEFAULT_DRIVERS;
+
+        if (Array.isArray(_memStore.drivers)) {
+            _memStore.drivers.forEach(d => {
+                if (d && d.name && d.name.trim()) {
+                    const key = d.name.trim().toLowerCase();
+                    if (!driverMap.has(key)) {
+                        driverMap.set(key, {
+                            id: d.id || `drv-${key.replace(/\s+/g, '_')}`,
+                            name: d.name.trim(),
+                            phone: d.phone || 'Not Provided'
+                        });
+                    }
+                }
+            });
+        }
+
+        // 2. Also harvest any drivers from all trips (which sync via Firebase Cloud)
+        const trips = this.getTrips();
+        trips.forEach(t => {
+            if (t.driverName && t.driverName.trim() && t.driverName.trim() !== 'Driver') {
+                const key = t.driverName.trim().toLowerCase();
+                if (!driverMap.has(key)) {
+                    driverMap.set(key, {
+                        id: `drv-${key.replace(/\s+/g, '_')}`,
+                        name: t.driverName.trim(),
+                        phone: t.driverPhone || 'Not Provided'
+                    });
+                }
+            }
+        });
+
+        const list = Array.from(driverMap.values());
+        _memStore.drivers = list;
+        return list;
     },
 
     saveDrivers: function(drivers) {
@@ -475,7 +594,7 @@ const TransportDB = {
         const drivers = this.getDrivers();
         const existing = drivers.find(d => d.name.toLowerCase() === cleanName.toLowerCase());
         if (existing) {
-            if (cleanPhone && cleanPhone !== existing.phone) {
+            if (cleanPhone && cleanPhone !== 'Not Provided' && cleanPhone !== existing.phone) {
                 existing.phone = cleanPhone;
                 this.saveDrivers(drivers);
             }
@@ -614,41 +733,87 @@ const FirebaseSync = {
             this.unsubscribeTrips = this.db.collection('trips').onSnapshot(snapshot => {
                 const cloudTrips = [];
                 snapshot.forEach(doc => {
-                    cloudTrips.push(doc.data());
+                    const data = doc.data();
+                    if (data && data.id) cloudTrips.push(data);
                 });
 
-                if (cloudTrips.length > 0) {
-                    // Sort descending by checkInTime
-                    cloudTrips.sort((a, b) => new Date(b.checkInTime) - new Date(a.checkInTime));
-                    _memStore.trips = cloudTrips;
-                    try {
-                        localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(cloudTrips));
-                    } catch (e) {}
-                    if (window.App && typeof window.App.refreshAll === 'function') {
-                        window.App.refreshAll();
-                    }
+                // Sort descending by checkInTime
+                cloudTrips.sort((a, b) => new Date(b.checkInTime) - new Date(a.checkInTime));
+                _memStore.trips = cloudTrips;
+                try {
+                    localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(cloudTrips));
+                } catch (e) {}
+                if (window.App && typeof window.App.refreshAll === 'function') {
+                    window.App.refreshAll();
                 }
             }, err => {
-                console.warn('[FirebaseSync] Snapshot listener warning:', err);
+                console.error('[FirebaseSync] Snapshot listener error:', err);
+                if (err.code === 'permission-denied' && window.App) {
+                    window.App.showNotification('⚠️ Firestore Rules Notice: Please update Rules to allow read, write in Firebase Console.', 'error');
+                }
             });
-        } catch (e) {}
+        } catch (e) {
+            console.error('[FirebaseSync] Failed to attach trips listener:', e);
+        }
+    },
+
+    sanitizeForFirestore: function(obj) {
+        if (!obj || typeof obj !== 'object') return obj;
+        const clean = {};
+        for (const [key, val] of Object.entries(obj)) {
+            if (val === undefined) {
+                clean[key] = null;
+            } else if (typeof val === 'object' && val !== null && !Array.isArray(val)) {
+                clean[key] = this.sanitizeForFirestore(val);
+            } else {
+                clean[key] = val;
+            }
+        }
+        return clean;
     },
 
     syncTrip: function(trip) {
         if (!this.isInitialized || !this.db || !trip || !trip.id) return;
         try {
-            this.db.collection('trips').doc(trip.id).set(trip, { merge: true });
+            const cleanTrip = this.sanitizeForFirestore(trip);
+            this.db.collection('trips').doc(trip.id).set(cleanTrip, { merge: true })
+                .then(() => {
+                    console.log('[FirebaseSync] Successfully synced trip to cloud:', trip.id);
+                })
+                .catch(err => {
+                    console.error('[FirebaseSync] Error syncing trip to cloud:', err);
+                    if (window.App) {
+                        window.App.showNotification(`⚠️ Cloud Sync: ${err.message}`, 'error');
+                    }
+                });
         } catch (e) {
-            console.error('[FirebaseSync] Failed to sync trip:', e);
+            console.error('[FirebaseSync] Sync serialization error:', e);
         }
     },
 
     deleteTrip: function(tripId) {
         if (!this.isInitialized || !this.db || !tripId) return;
+        this.db.collection('trips').doc(tripId).delete()
+            .then(() => {
+                console.log('[FirebaseSync] Deleted trip in cloud:', tripId);
+            })
+            .catch(err => {
+                console.error('[FirebaseSync] Failed to delete trip in cloud:', err);
+            });
+    },
+
+    clearAllCloudTrips: async function() {
+        if (!this.isInitialized || !this.db) return;
         try {
-            this.db.collection('trips').doc(tripId).delete();
+            const snapshot = await this.db.collection('trips').get();
+            const batch = this.db.batch();
+            snapshot.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+            console.log('[FirebaseSync] Successfully wiped all trips from Firebase Firestore.');
         } catch (e) {
-            console.error('[FirebaseSync] Failed to delete trip in cloud:', e);
+            console.error('[FirebaseSync] Failed to clear cloud trips:', e);
         }
     },
 

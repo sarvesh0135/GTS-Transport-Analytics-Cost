@@ -296,8 +296,9 @@
                                 <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-500 text-xs"></i>
                                 <input type="text" id="checkinOriginSearch" oninput="App.filterOriginSites(this.value)" placeholder="🔍 Type to search site name or code (e.g. Apple, HYD001)..." class="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition">
                             </div>
-                            <select id="checkinOriginSelect" required onchange="App.updateOriginSiteDetails(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-blue-500">
-<option value="">-- Search / Select Departure Site (314 Sites Available) --</option>
+                            <select id="checkinOriginSelect" required onchange="App.handleOriginSiteSelectChange(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-blue-500">
+                                <option value="">-- Search / Select Departure Site (314 Sites Available) --</option>
+                                <option value="__NEW_SITE__" class="font-bold text-blue-400 bg-blue-950/40">➕ + Add New Site (Not in List)</option>
                                 <option value="HYD001">[HYD001] Apple Waverock (Supervisor: Eshwar Megawath)</option>
                                 <option value="HYD002">[HYD002] Apple SKC (Supervisor: Reshma Begum)</option>
                                 <option value="HYD003">[HYD003] Apple LOFT (Supervisor: Reshma Begum)</option>
@@ -614,6 +615,34 @@
                                 <option value="HYD368">[HYD368] Novartis - Genom Valley (Supervisor: Unassigned)</option>
 
                             </select>
+
+                            <!-- Custom Departure Site Form (When driver adds a new site) -->
+                            <div id="checkinCustomOriginBox" class="hidden mt-2.5 p-3.5 bg-slate-950 border border-blue-500/50 rounded-2xl space-y-2.5 text-xs shadow-lg">
+                                <div class="font-bold text-blue-400 text-[11px] flex items-center justify-between border-b border-slate-800 pb-1.5">
+                                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-plus-circle text-blue-400"></i> Add New Departure Site</span>
+                                    <button type="button" onclick="App.cancelCustomOriginSite()" class="text-slate-400 hover:text-rose-400 text-[10px] font-semibold">Cancel</button>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-slate-300 text-[10px] font-semibold mb-1">Site / Facility Name <span class="text-rose-400">*</span></label>
+                                        <input type="text" id="checkinCustomOriginName" placeholder="e.g. Amazon Gachibowli" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-blue-500 text-xs">
+                                    </div>
+                                    <div>
+                                        <label class="block text-slate-300 text-[10px] font-semibold mb-1">Site Code (Optional)</label>
+                                        <input type="text" id="checkinCustomOriginCode" placeholder="Auto-generated if empty" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white uppercase font-mono focus:outline-none focus:border-blue-500 text-xs">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                    <div>
+                                        <label class="block text-slate-300 text-[10px] font-semibold mb-1">Supervisor Name (Optional)</label>
+                                        <input type="text" id="checkinCustomOriginSupervisor" placeholder="e.g. Ramesh Reddy" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-blue-500 text-xs">
+                                    </div>
+                                    <div>
+                                        <label class="block text-slate-300 text-[10px] font-semibold mb-1">Location / Area (Optional)</label>
+                                        <input type="text" id="checkinCustomOriginLocation" placeholder="e.g. Gachibowli / Hitec City" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-blue-500 text-xs">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
 
                         <!-- Origin Site Details Card (Supervisor & Assistant Manager) -->
@@ -1811,8 +1840,9 @@
                         <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-500 text-xs"></i>
                         <input type="text" id="checkoutDestSearch" oninput="App.filterDestSites(this.value)" placeholder="🔍 Type to search arrival site (e.g. Apple, Google, HYD001)..." class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition">
                     </div>
-                    <select id="checkoutDestSelect" required onchange="App.updateDestSiteDetails(this.value); App.recalculateCheckoutPreview();" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500">
-<option value="">-- Search / Select Arrival Site --</option>
+                    <select id="checkoutDestSelect" required onchange="App.handleDestSiteSelectChange(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500">
+                        <option value="">-- Search / Select Arrival Site --</option>
+                        <option value="__NEW_SITE__" class="font-bold text-emerald-400 bg-emerald-950/40">➕ + Add New Site (Not in List)</option>
                         <option value="HYD001">[HYD001] Apple Waverock (Supervisor: Eshwar Megawath)</option>
                         <option value="HYD002">[HYD002] Apple SKC (Supervisor: Reshma Begum)</option>
                         <option value="HYD003">[HYD003] Apple LOFT (Supervisor: Reshma Begum)</option>
@@ -2129,6 +2159,34 @@
                         <option value="HYD368">[HYD368] Novartis - Genom Valley (Supervisor: Unassigned)</option>
 
                     </select>
+
+                    <!-- Custom Destination Site Form (When driver adds a new arrival site) -->
+                    <div id="checkoutCustomDestBox" class="hidden mt-2.5 p-3.5 bg-slate-950 border border-emerald-500/50 rounded-2xl space-y-2.5 text-xs shadow-lg">
+                        <div class="font-bold text-emerald-400 text-[11px] flex items-center justify-between border-b border-slate-800 pb-1.5">
+                            <span class="flex items-center gap-1.5"><i class="fa-solid fa-plus-circle text-emerald-400"></i> Add New Arrival Site</span>
+                            <button type="button" onclick="App.cancelCustomDestSite()" class="text-slate-400 hover:text-rose-400 text-[10px] font-semibold">Cancel</button>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-300 text-[10px] font-semibold mb-1">Site / Facility Name <span class="text-rose-400">*</span></label>
+                                <input type="text" id="checkoutCustomDestName" placeholder="e.g. Novartis Genom Valley" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-slate-300 text-[10px] font-semibold mb-1">Site Code (Optional)</label>
+                                <input type="text" id="checkoutCustomDestCode" placeholder="Auto-generated if empty" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white uppercase font-mono focus:outline-none focus:border-emerald-500 text-xs">
+                            </div>
+                        </div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-slate-300 text-[10px] font-semibold mb-1">Supervisor Name (Optional)</label>
+                                <input type="text" id="checkoutCustomDestSupervisor" placeholder="e.g. Suresh Kumar" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500 text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-slate-300 text-[10px] font-semibold mb-1">Location / Area (Optional)</label>
+                                <input type="text" id="checkoutCustomDestLocation" placeholder="e.g. Shameerpet / Genome Valley" class="w-full bg-slate-900 border border-slate-700 rounded-xl px-2.5 py-2 text-white focus:outline-none focus:border-emerald-500 text-xs">
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Destination Site Info Card -->
@@ -6996,21 +7054,51 @@ const TransportDB = {
 
     // --- VEHICLES MANAGEMENT ---
     getVehicles: function() {
+        const vehMap = new Map();
+
+        // 1. Defaults first
+        DEFAULT_VEHICLES.forEach(v => vehMap.set(v.plate, { ...v }));
+
+        // 2. Saved vehicles from localStorage / memStore
         try {
             const raw = localStorage.getItem(DB_KEYS.VEHICLES);
             if (raw) {
                 const parsed = JSON.parse(raw);
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    _memStore.vehicles = parsed;
-                    return parsed;
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(v => {
+                        if (v && v.plate) vehMap.set(v.plate, v);
+                    });
                 }
             }
         } catch (e) {}
-        if (Array.isArray(_memStore.vehicles) && _memStore.vehicles.length > 0) return _memStore.vehicles;
-        
-        // Initial fallback to default 4 vehicles
-        this.saveVehicles(DEFAULT_VEHICLES);
-        return DEFAULT_VEHICLES;
+
+        if (Array.isArray(_memStore.vehicles)) {
+            _memStore.vehicles.forEach(v => {
+                if (v && v.plate) vehMap.set(v.plate, v);
+            });
+        }
+
+        // 3. Harvest from cloud-synced trips
+        const trips = this.getTrips();
+        trips.forEach(t => {
+            if (t.vehiclePlate && t.vehiclePlate.trim()) {
+                const plate = t.vehiclePlate.trim().toUpperCase().replace(/\s+/g, '');
+                if (!vehMap.has(plate)) {
+                    vehMap.set(plate, {
+                        plate: plate,
+                        model: 'Transport Vehicle',
+                        type: 'Transport',
+                        fuelType: t.fuelType || 'Diesel',
+                        mileage: parseFloat(t.mileage) || 10.0,
+                        currentOdo: t.endOdo || t.startOdo || 0
+                    });
+                }
+            }
+        });
+
+        const list = Array.from(vehMap.values());
+        _memStore.vehicles = list;
+        return list;
     },
 
     saveVehicles: function(vehicles) {
@@ -7083,18 +7171,60 @@ const TransportDB = {
 
     // --- DRIVERS MANAGEMENT ---
     getDrivers: function() {
+        const driverMap = new Map();
+        
+        // 1. Load from saved drivers
         try {
             const raw = localStorage.getItem(DB_KEYS.DRIVERS);
             if (raw) {
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) {
-                    _memStore.drivers = parsed;
-                    return parsed;
+                    parsed.forEach(d => {
+                        if (d && d.name && d.name.trim()) {
+                            driverMap.set(d.name.trim().toLowerCase(), {
+                                id: d.id || `drv-${d.name.trim().toLowerCase().replace(/\s+/g, '_')}`,
+                                name: d.name.trim(),
+                                phone: d.phone || 'Not Provided'
+                            });
+                        }
+                    });
                 }
             }
         } catch (e) {}
-        if (Array.isArray(_memStore.drivers)) return _memStore.drivers;
-        return DEFAULT_DRIVERS;
+
+        if (Array.isArray(_memStore.drivers)) {
+            _memStore.drivers.forEach(d => {
+                if (d && d.name && d.name.trim()) {
+                    const key = d.name.trim().toLowerCase();
+                    if (!driverMap.has(key)) {
+                        driverMap.set(key, {
+                            id: d.id || `drv-${key.replace(/\s+/g, '_')}`,
+                            name: d.name.trim(),
+                            phone: d.phone || 'Not Provided'
+                        });
+                    }
+                }
+            });
+        }
+
+        // 2. Also harvest any drivers from all trips (which sync via Firebase Cloud)
+        const trips = this.getTrips();
+        trips.forEach(t => {
+            if (t.driverName && t.driverName.trim() && t.driverName.trim() !== 'Driver') {
+                const key = t.driverName.trim().toLowerCase();
+                if (!driverMap.has(key)) {
+                    driverMap.set(key, {
+                        id: `drv-${key.replace(/\s+/g, '_')}`,
+                        name: t.driverName.trim(),
+                        phone: t.driverPhone || 'Not Provided'
+                    });
+                }
+            }
+        });
+
+        const list = Array.from(driverMap.values());
+        _memStore.drivers = list;
+        return list;
     },
 
     saveDrivers: function(drivers) {
@@ -7111,7 +7241,7 @@ const TransportDB = {
         const drivers = this.getDrivers();
         const existing = drivers.find(d => d.name.toLowerCase() === cleanName.toLowerCase());
         if (existing) {
-            if (cleanPhone && cleanPhone !== existing.phone) {
+            if (cleanPhone && cleanPhone !== 'Not Provided' && cleanPhone !== existing.phone) {
                 existing.phone = cleanPhone;
                 this.saveDrivers(drivers);
             }
@@ -8642,6 +8772,107 @@ const App = {
         }
     },
 
+    handleOriginSiteSelectChange: function(val) {
+        const customBox = document.getElementById('checkinCustomOriginBox');
+        if (val === '__NEW_SITE__') {
+            if (customBox) customBox.classList.remove('hidden');
+            const card = document.getElementById('originSiteInfoCard');
+            if (card) card.classList.add('hidden');
+            const nameInput = document.getElementById('checkinCustomOriginName');
+            if (nameInput) nameInput.focus();
+        } else {
+            if (customBox) customBox.classList.add('hidden');
+            this.updateOriginSiteDetails(val);
+        }
+    },
+
+    cancelCustomOriginSite: function() {
+        const select = document.getElementById('checkinOriginSelect');
+        const customBox = document.getElementById('checkinCustomOriginBox');
+        if (customBox) customBox.classList.add('hidden');
+        if (select) select.value = '';
+        this.updateOriginSiteDetails('');
+    },
+
+    handleDestSiteSelectChange: function(val) {
+        const customBox = document.getElementById('checkoutCustomDestBox');
+        if (val === '__NEW_SITE__') {
+            if (customBox) customBox.classList.remove('hidden');
+            const card = document.getElementById('destSiteInfoCard');
+            if (card) card.classList.add('hidden');
+            const nameInput = document.getElementById('checkoutCustomDestName');
+            if (nameInput) nameInput.focus();
+        } else {
+            if (customBox) customBox.classList.add('hidden');
+            this.updateDestSiteDetails(val);
+        }
+        this.recalculateCheckoutPreview();
+    },
+
+    cancelCustomDestSite: function() {
+        const select = document.getElementById('checkoutDestSelect');
+        const customBox = document.getElementById('checkoutCustomDestBox');
+        if (customBox) customBox.classList.add('hidden');
+        if (select) select.value = '';
+        this.updateDestSiteDetails('');
+        this.recalculateCheckoutPreview();
+    },
+
+    filterOriginSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const originSelect = document.getElementById('checkinOriginSelect');
+        const countBadge = document.getElementById('originSiteCountBadge');
+        if (!originSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query)) ||
+            (s.customerGroup && s.customerGroup.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} Sites`;
+
+        let html = `<option value="">-- Search / Select Departure Site (${filtered.length} Sites) --</option>`;
+        html += `<option value="__NEW_SITE__" class="font-bold text-blue-400 bg-blue-950/40">➕ + Add New Site (Not in List)</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        originSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            originSelect.value = filtered[0].code;
+            this.updateOriginSiteDetails(filtered[0].code);
+        }
+    },
+
+    filterDestSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const destSelect = document.getElementById('checkoutDestSelect');
+        const countBadge = document.getElementById('destSiteCountBadge');
+        if (!destSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query)) ||
+            (s.customerGroup && s.customerGroup.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} Sites`;
+
+        let html = `<option value="">-- Search / Select Arrival Site (${filtered.length} Sites) --</option>`;
+        html += `<option value="__NEW_SITE__" class="font-bold text-emerald-400 bg-emerald-950/40">➕ + Add New Site (Not in List)</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        destSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            destSelect.value = filtered[0].code;
+            this.updateDestSiteDetails(filtered[0].code);
+            this.recalculateCheckoutPreview();
+        }
+    },
+
     updateOriginSiteDetails: function(siteCode) {
         const sites = TransportDB.getSites();
         const site = sites.find(s => s.code === siteCode);
@@ -8788,13 +9019,29 @@ const App = {
             if (!originCode) throw new Error("Please select the Departure / Origin Site.");
             if (!startOdo || isNaN(startOdo)) throw new Error("Please enter a valid Starting Meter Reading.");
 
-            const sites = TransportDB.getSites();
-            const originSite = sites.find(s => s.code === originCode) || {
-                code: originCode,
-                name: originCode,
-                supervisor: 'Unassigned',
-                asstManager: 'Unassigned'
-            };
+            let originSite = null;
+            if (originCode === '__NEW_SITE__') {
+                const customName = document.getElementById('checkinCustomOriginName')?.value.trim();
+                const customCode = document.getElementById('checkinCustomOriginCode')?.value.trim();
+                const customSup = document.getElementById('checkinCustomOriginSupervisor')?.value.trim();
+                const customLoc = document.getElementById('checkinCustomOriginLocation')?.value.trim();
+
+                if (!customName) throw new Error("Please enter the New Departure Site Name.");
+                originSite = TransportDB.addSite({
+                    name: customName,
+                    code: customCode,
+                    supervisor: customSup || 'Unassigned',
+                    location: customLoc
+                });
+            } else {
+                const sites = TransportDB.getSites();
+                originSite = sites.find(s => s.code === originCode) || {
+                    code: originCode,
+                    name: originCode,
+                    supervisor: 'Unassigned',
+                    asstManager: 'Unassigned'
+                };
+            }
 
             const newTrip = TransportDB.checkInTrip({
                 driverName,
@@ -8814,11 +9061,12 @@ const App = {
             document.getElementById('driverCheckinForm').reset();
             document.getElementById('checkinCustomDriverBox')?.classList.add('hidden');
             document.getElementById('checkinCustomVehicleBox')?.classList.add('hidden');
+            document.getElementById('checkinCustomOriginBox')?.classList.add('hidden');
             this.startPhotoBase64 = null;
             document.getElementById('startPhotoPreview')?.classList.add('hidden');
             document.getElementById('originSiteInfoCard')?.classList.add('hidden');
 
-            this.showNotification(`Trip Started! Vehicle ${newTrip.vehiclePlate} is In Transit.`, 'success');
+            this.showNotification(`Trip Started! Vehicle ${newTrip.vehiclePlate} is In Transit from [${originSite.code}] ${originSite.name}.`, 'success');
             this.refreshAll();
         } catch (err) {
             this.showNotification(err.message, 'error');
@@ -9009,13 +9257,29 @@ const App = {
             if (!destCode) throw new Error("Please select the Destination / Arrival Site.");
             if (!endOdo || isNaN(endOdo)) throw new Error("Please enter ending meter reading.");
 
-            const sites = TransportDB.getSites();
-            const destSite = sites.find(s => s.code === destCode) || {
-                code: destCode,
-                name: destCode,
-                supervisor: 'Unassigned',
-                asstManager: 'Unassigned'
-            };
+            let destSite = null;
+            if (destCode === '__NEW_SITE__') {
+                const customName = document.getElementById('checkoutCustomDestName')?.value.trim();
+                const customCode = document.getElementById('checkoutCustomDestCode')?.value.trim();
+                const customSup = document.getElementById('checkoutCustomDestSupervisor')?.value.trim();
+                const customLoc = document.getElementById('checkoutCustomDestLocation')?.value.trim();
+
+                if (!customName) throw new Error("Please enter the New Arrival Site Name.");
+                destSite = TransportDB.addSite({
+                    name: customName,
+                    code: customCode,
+                    supervisor: customSup || 'Unassigned',
+                    location: customLoc
+                });
+            } else {
+                const sites = TransportDB.getSites();
+                destSite = sites.find(s => s.code === destCode) || {
+                    code: destCode,
+                    name: destCode,
+                    supervisor: 'Unassigned',
+                    asstManager: 'Unassigned'
+                };
+            }
 
             const completedTrip = TransportDB.checkOutTrip(this.currentActiveTripId, {
                 destSiteCode: destSite.code,
@@ -9029,7 +9293,7 @@ const App = {
             });
 
             this.closeCheckOutModal();
-            this.showNotification(`Trip ${completedTrip.id} Completed! Logged ${completedTrip.distance} km.`, 'success');
+            this.showNotification(`Trip ${completedTrip.id} Completed! Reached [${destSite.code}] ${destSite.name} (${completedTrip.distance} km).`, 'success');
             this.refreshAll();
         } catch (err) {
             this.showNotification(err.message, 'error');
