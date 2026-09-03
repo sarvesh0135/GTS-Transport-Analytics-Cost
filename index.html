@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
@@ -802,10 +802,13 @@
                     <h2 class="text-2xl font-extrabold text-white">Trip Logs & Master Ledger</h2>
                     <p class="text-slate-400 text-sm mt-1">Audit complete trip records, odometer photos, supervisor verification, and print receipts.</p>
                 </div>
-                <div class="flex items-center gap-3">
+                <div class="flex items-center gap-2">
                     <span id="filteredTripsCount" class="text-xs text-slate-400">Showing 0 Trips</span>
-                    <button id="btnExportTrips" onclick="const trips = TransportCalculator.filterTrips(TransportDB.getTrips(), App.tripFilters); AppExporter.exportTripsToExcel(trips);" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition flex items-center gap-2 shadow-lg shadow-emerald-950/40">
-                        <i class="fa-solid fa-file-excel"></i> Export to Excel (.xlsx)
+                    <button id="btnExportTrips" onclick="const trips = TransportCalculator.filterTrips(TransportDB.getTrips(), App.tripFilters); AppExporter.exportTripsToExcel(trips);" class="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-lg shadow-emerald-950/40">
+                        <i class="fa-solid fa-file-excel"></i> Export Excel
+                    </button>
+                    <button onclick="App.handleClearAllTrips()" class="px-3.5 py-2 bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-800/80 rounded-xl text-xs font-semibold transition flex items-center gap-1.5 shadow-sm" title="Clear all past trip records">
+                        <i class="fa-solid fa-trash-can text-rose-400"></i> Clear All Trips
                     </button>
                 </div>
             </div>
@@ -1650,6 +1653,11 @@
                                 Update Security PIN
                             </button>
                         </form>
+                        <div class="pt-2 border-t border-slate-800/60 mt-2">
+                            <button type="button" onclick="App.handleClearAllTrips()" class="w-full py-1.5 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border border-rose-900/50 font-bold rounded-xl transition text-[11px] flex items-center justify-center gap-1.5 shadow-sm">
+                                <i class="fa-solid fa-trash-can text-rose-400"></i> Clear All Past Trip Data
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -6816,6 +6824,13 @@ const TransportDB = {
         if (typeof FirebaseSync !== 'undefined') FirebaseSync.deleteTrip(tripId);
     },
 
+    clearAllTrips: async function() {
+        this.saveTrips([]);
+        if (typeof FirebaseSync !== 'undefined' && FirebaseSync.isInitialized) {
+            await FirebaseSync.clearAllCloudTrips();
+        }
+    },
+
     // --- VEHICLES MANAGEMENT ---
     getVehicles: function() {
         try {
@@ -7072,29 +7087,18 @@ const FirebaseSync = {
             this.unsubscribeTrips = this.db.collection('trips').onSnapshot(snapshot => {
                 const cloudTrips = [];
                 snapshot.forEach(doc => {
-                    cloudTrips.push(doc.data());
+                    const data = doc.data();
+                    if (data && data.id) cloudTrips.push(data);
                 });
 
-                const localTrips = TransportDB.getTrips();
-                
-                // Auto-upload any local trips that were saved on this device previously but aren't in cloud yet
-                localTrips.forEach(lt => {
-                    if (!cloudTrips.some(ct => ct.id === lt.id)) {
-                        this.syncTrip(lt);
-                        cloudTrips.push(lt);
-                    }
-                });
-
-                if (cloudTrips.length > 0) {
-                    // Sort descending by checkInTime
-                    cloudTrips.sort((a, b) => new Date(b.checkInTime) - new Date(a.checkInTime));
-                    _memStore.trips = cloudTrips;
-                    try {
-                        localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(cloudTrips));
-                    } catch (e) {}
-                    if (window.App && typeof window.App.refreshAll === 'function') {
-                        window.App.refreshAll();
-                    }
+                // Sort descending by checkInTime
+                cloudTrips.sort((a, b) => new Date(b.checkInTime) - new Date(a.checkInTime));
+                _memStore.trips = cloudTrips;
+                try {
+                    localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(cloudTrips));
+                } catch (e) {}
+                if (window.App && typeof window.App.refreshAll === 'function') {
+                    window.App.refreshAll();
                 }
             }, err => {
                 console.error('[FirebaseSync] Snapshot listener error:', err);
@@ -7150,6 +7154,21 @@ const FirebaseSync = {
             .catch(err => {
                 console.error('[FirebaseSync] Failed to delete trip in cloud:', err);
             });
+    },
+
+    clearAllCloudTrips: async function() {
+        if (!this.isInitialized || !this.db) return;
+        try {
+            const snapshot = await this.db.collection('trips').get();
+            const batch = this.db.batch();
+            snapshot.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+            await batch.commit();
+            console.log('[FirebaseSync] Successfully wiped all trips from Firebase Firestore.');
+        } catch (e) {
+            console.error('[FirebaseSync] Failed to clear cloud trips:', e);
+        }
     },
 
     migrateLocalToCloud: async function() {
@@ -8684,9 +8703,14 @@ const App = {
                                 </p>
                             </div>
                         </div>
-                        <div class="text-right text-[11px] text-slate-400">
-                            <div class="font-bold text-slate-200">${timeStr}</div>
-                            <div>${dateStr}</div>
+                        <div class="flex items-center gap-2">
+                            <div class="text-right text-[11px] text-slate-400">
+                                <div class="font-bold text-slate-200">${timeStr}</div>
+                                <div>${dateStr}</div>
+                            </div>
+                            <button onclick="App.deleteTrip('${trip.id}')" class="w-8 h-8 rounded-xl bg-rose-950/40 text-rose-400 hover:bg-rose-900/60 border border-rose-900/40 flex items-center justify-center transition" title="Cancel / Delete Trip">
+                                <i class="fa-solid fa-trash-can text-xs"></i>
+                            </button>
                         </div>
                     </div>
 
@@ -9250,10 +9274,35 @@ const App = {
     },
 
     deleteTrip: function(tripId) {
-        if (confirm(`Delete trip record ${tripId}?`)) {
+        if (confirm(`Are you sure you want to permanently delete trip record ${tripId}? This will remove it from both your device and cloud storage.`)) {
             TransportDB.deleteTrip(tripId);
-            this.showNotification(`Trip ${tripId} removed.`, 'success');
+            this.showNotification(`Trip ${tripId} permanently deleted.`, 'success');
             this.refreshAll();
+        }
+    },
+
+    handleClearAllTrips: async function() {
+        const total = TransportDB.getTrips().length;
+        if (total === 0) {
+            this.showNotification('No past trips to delete.', 'info');
+            return;
+        }
+
+        const pin = prompt(`⚠️ CAUTION: You are about to permanently delete all ${total} past trip records from both this device and Cloud Database.\n\nPlease enter Management PIN to confirm:`);
+        if (!pin) return;
+
+        const correctPin = TransportDB.getManagementPin();
+        if (pin.trim() !== correctPin) {
+            this.showNotification('❌ Incorrect PIN. Clear cancelled.', 'error');
+            return;
+        }
+
+        try {
+            await TransportDB.clearAllTrips();
+            this.showNotification('✓ All past trip records have been permanently cleared.', 'success');
+            this.refreshAll();
+        } catch (e) {
+            this.showNotification(`Clear failed: ${e.message}`, 'error');
         }
     },
 
