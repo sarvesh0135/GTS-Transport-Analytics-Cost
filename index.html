@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
@@ -2284,6 +2284,129 @@
                     </button>
                     <button type="submit" class="flex-2 w-2/3 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-950/50 transition flex items-center justify-center gap-1.5">
                         <i class="fa-solid fa-circle-check"></i> Confirm Verification
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL: MANAGEMENT EDIT TRIP RECORD & AUDIT TRAIL -->
+    <!-- ============================================================= -->
+    <div id="editTripModal" class="fixed inset-0 z-50 bg-black/85 backdrop-blur-sm hidden flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-slate-900 border border-blue-500/40 rounded-3xl max-w-xl w-full p-6 shadow-2xl space-y-4 my-8 max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center text-lg font-bold">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-extrabold text-white text-base">Edit Trip Record (Management)</h3>
+                        <p id="editTripIdBadge" class="text-xs text-blue-400 font-mono font-bold">TRIP-0000</p>
+                    </div>
+                </div>
+                <button type="button" onclick="App.closeEditTripModal()" class="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form id="editTripForm" onsubmit="event.preventDefault(); App.handleSaveTripEdit();" class="space-y-3.5 text-xs">
+                <input type="hidden" id="editTripTargetId">
+
+                <!-- Manager Audit Trail Card -->
+                <div class="bg-blue-950/40 border border-blue-600/40 p-3 rounded-2xl space-y-2">
+                    <div class="text-[11px] font-bold text-blue-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-user-shield text-blue-400"></i> Manager Audit Trail
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">
+                                Manager Name <span class="text-rose-400">*</span>
+                            </label>
+                            <input type="text" id="editManagerName" required placeholder="Enter your name (e.g. Sarvesh)"
+                                class="w-full bg-slate-950 border border-blue-500/50 rounded-xl px-3 py-2 text-white font-semibold focus:outline-none focus:border-blue-400">
+                        </div>
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">
+                                Reason for Change
+                            </label>
+                            <input type="text" id="editReason" placeholder="e.g. Corrected destination site"
+                                class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-400">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Departure / Origin Site -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="font-semibold text-slate-300">Departure / Origin Site <span class="text-rose-400">*</span></label>
+                        <span id="editOriginSiteBadge" class="text-[10px] text-blue-400 font-mono">314 Sites</span>
+                    </div>
+                    <div class="relative mb-1.5">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2 text-slate-500 text-xs"></i>
+                        <input type="text" id="editOriginSearch" oninput="App.filterEditOriginSites(this.value)" placeholder="🔍 Search departure site..." class="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none">
+                    </div>
+                    <select id="editOriginSelect" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+
+                <!-- Arrival / Destination Site -->
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="font-semibold text-slate-300">Arrival / Destination Site</label>
+                        <span id="editDestSiteBadge" class="text-[10px] text-emerald-400 font-mono">314 Sites</span>
+                    </div>
+                    <div class="relative mb-1.5">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3 top-2 text-slate-500 text-xs"></i>
+                        <input type="text" id="editDestSearch" oninput="App.filterEditDestSites(this.value)" placeholder="🔍 Search arrival site..." class="w-full bg-slate-950 border border-slate-800 focus:border-emerald-500 rounded-xl pl-8 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none">
+                    </div>
+                    <select id="editDestSelect" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                        <option value="">-- No Destination Assigned (In Transit) --</option>
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+
+                <!-- Driver & Vehicle -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Driver Name <span class="text-rose-400">*</span></label>
+                        <input type="text" id="editDriverName" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Vehicle Plate <span class="text-rose-400">*</span></label>
+                        <input type="text" id="editVehiclePlate" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono uppercase focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+
+                <!-- Meter Readings & Tolls -->
+                <div class="grid grid-cols-3 gap-2">
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Start Meter (km) <span class="text-rose-400">*</span></label>
+                        <input type="number" step="0.1" id="editStartOdo" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-blue-300 font-mono font-bold focus:outline-none focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">End Meter (km)</label>
+                        <input type="number" step="0.1" id="editEndOdo" placeholder="e.g. 48545" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-emerald-300 font-mono font-bold focus:outline-none focus:border-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block font-semibold text-slate-300 mb-1">Tolls (₹)</label>
+                        <input type="number" step="1" id="editTolls" value="0" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-2.5 py-2 text-white font-mono focus:outline-none focus:border-blue-500">
+                    </div>
+                </div>
+
+                <!-- Cargo / Notes -->
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1">Cargo / Trip Notes</label>
+                    <input type="text" id="editNotes" placeholder="e.g. Routine delivery, crates transfer" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-blue-500">
+                </div>
+
+                <div class="flex items-center gap-2 pt-3 border-t border-slate-800">
+                    <button type="button" onclick="App.closeEditTripModal()" class="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl transition">
+                        Cancel
+                    </button>
+                    <button type="submit" class="flex-2 w-2/3 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold rounded-xl shadow-lg shadow-blue-950/50 transition flex items-center justify-center gap-1.5">
+                        <i class="fa-solid fa-floppy-disk"></i> Save Changes &amp; Log Audit
                     </button>
                 </div>
             </form>
@@ -6817,6 +6940,46 @@ const TransportDB = {
         throw new Error('Trip not found');
     },
 
+    updateTrip: function(tripId, updatedFields, managerName, editReason) {
+        const trips = this.getTrips();
+        const tripIndex = trips.findIndex(t => t.id === tripId);
+        if (tripIndex === -1) throw new Error("Trip not found.");
+
+        const trip = { ...trips[tripIndex], ...updatedFields };
+
+        // Auto-recalculate distance and financials if meter readings are present
+        const startOdo = parseFloat(trip.startOdo);
+        const endOdo = parseFloat(trip.endOdo);
+        if (!isNaN(startOdo) && !isNaN(endOdo) && endOdo >= startOdo) {
+            trip.status = 'COMPLETED';
+            trip.distance = parseFloat((endOdo - startOdo).toFixed(2));
+            const mileage = parseFloat(trip.mileage) || 10.0;
+            const fuelRate = parseFloat(trip.fuelRate) || 92.50;
+            const tolls = parseFloat(trip.tollsAndMisc || 0);
+
+            trip.fuelConsumed = mileage > 0 ? parseFloat((trip.distance / mileage).toFixed(2)) : 0;
+            trip.fuelCost = parseFloat((trip.fuelConsumed * fuelRate).toFixed(2));
+            trip.totalCost = parseFloat((trip.fuelCost + tolls).toFixed(2));
+            trip.costPerKm = trip.distance > 0 ? parseFloat((trip.totalCost / trip.distance).toFixed(2)) : 0;
+        }
+
+        trip.isEdited = true;
+        trip.editedBy = (managerName || 'Manager').trim();
+        trip.editedAt = new Date().toISOString();
+        if (editReason && editReason.trim()) {
+            trip.editReason = editReason.trim();
+        }
+
+        trips[tripIndex] = trip;
+        this.saveTrips(trips);
+
+        if (typeof FirebaseSync !== 'undefined') {
+            FirebaseSync.syncTrip(trip);
+        }
+
+        return trip;
+    },
+
     deleteTrip: function(tripId) {
         let trips = this.getTrips();
         trips = trips.filter(t => t.id !== tripId);
@@ -7891,6 +8054,14 @@ const AppExporter = {
                         </div>
                     </div>
 
+                    ${trip.isEdited ? `
+                        <div style="margin-top:12px; border: 1px dashed #3b82f6; border-radius: 8px; padding: 10px 14px; background: #eff6ff; font-size: 11px; color: #1e40af;">
+                            <div style="font-weight:bold; margin-bottom:2px;">✏️ Record Edited by Management:</div>
+                            <div>Edited by: <strong>${trip.editedBy}</strong> on ${new Date(trip.editedAt).toLocaleString()}</div>
+                            ${trip.editReason ? `<div style="margin-top:2px; font-style:italic; color:#3b82f6;">Reason: "${trip.editReason}"</div>` : ''}
+                        </div>
+                    ` : ''}
+
                     <div class="footer">
                         <p>Generated by Fleet Transport Cost System • Verified Driver Copy</p>
                     </div>
@@ -8703,11 +8874,14 @@ const App = {
                                 </p>
                             </div>
                         </div>
-                        <div class="flex items-center gap-2">
-                            <div class="text-right text-[11px] text-slate-400">
+                        <div class="flex items-center gap-1.5">
+                            <div class="text-right text-[11px] text-slate-400 mr-1">
                                 <div class="font-bold text-slate-200">${timeStr}</div>
                                 <div>${dateStr}</div>
                             </div>
+                            <button onclick="App.openEditTripModal('${trip.id}')" class="w-8 h-8 rounded-xl bg-blue-950/60 text-blue-400 hover:bg-blue-900/80 border border-blue-800/60 flex items-center justify-center transition" title="Edit Trip Details">
+                                <i class="fa-solid fa-pen-to-square text-xs"></i>
+                            </button>
                             <button onclick="App.deleteTrip('${trip.id}')" class="w-8 h-8 rounded-xl bg-rose-950/40 text-rose-400 hover:bg-rose-900/60 border border-rose-900/40 flex items-center justify-center transition" title="Cancel / Delete Trip">
                                 <i class="fa-solid fa-trash-can text-xs"></i>
                             </button>
@@ -9114,7 +9288,21 @@ const App = {
 
             return `
                 <tr class="border-b border-slate-800/80 hover:bg-slate-800/30 transition text-xs">
-                    <td class="py-3.5 px-4 font-mono font-bold text-blue-400">${t.id}</td>
+                    <td class="py-3.5 px-4 font-mono font-bold text-blue-400">
+                        <div class="flex items-center gap-1.5">
+                            <span>${t.id}</span>
+                            <button onclick="App.openEditTripModal('${t.id}')" class="px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 hover:bg-blue-900 border border-blue-800/80 text-[10px] font-sans font-semibold transition flex items-center gap-1" title="Edit Trip Details">
+                                <i class="fa-solid fa-pen text-[9px]"></i> Edit
+                            </button>
+                        </div>
+                        ${t.isEdited ? `
+                            <div class="mt-1">
+                                <span class="inline-flex items-center gap-1 text-[9px] text-amber-400 font-sans font-medium bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-800/60" title="Edited by ${t.editedBy} on ${new Date(t.editedAt).toLocaleString()}${t.editReason ? ` (${t.editReason})` : ''}">
+                                    <i class="fa-solid fa-clock-rotate-left text-[8px]"></i> by ${t.editedBy}
+                                </span>
+                            </div>
+                        ` : ''}
+                    </td>
                     <td class="py-3.5 px-4 text-slate-300">
                         <div>${dateStr}</div>
                         <div class="text-[10px] text-slate-500">${timeStr}</div>
@@ -9181,6 +9369,9 @@ const App = {
                     </td>
                     <td class="py-3.5 px-4 text-right">
                         <div class="flex items-center justify-end gap-1.5">
+                            <button onclick="App.openEditTripModal('${t.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-blue-400 hover:bg-slate-800 transition" title="Edit Trip Record">
+                                <i class="fa-solid fa-pen-to-square"></i>
+                            </button>
                             ${isComp ? `
                                 <button onclick="App.printTrip('${t.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Print Slip">
                                     <i class="fa-solid fa-print"></i>
@@ -9266,6 +9457,177 @@ const App = {
         this.closeVerifyModal();
         this.showNotification(`Trip ${tripId} verified by ${supervisorName}.`, 'success');
         this.refreshAll();
+    },
+
+    // --- MANAGEMENT TRIP EDIT & AUDIT TRAIL ---
+    openEditTripModal: function(tripId) {
+        const trip = TransportDB.getTripById(tripId);
+        if (!trip) return;
+
+        const modal = document.getElementById('editTripModal');
+        const idBadge = document.getElementById('editTripIdBadge');
+        const targetId = document.getElementById('editTripTargetId');
+        const managerInput = document.getElementById('editManagerName');
+        const reasonInput = document.getElementById('editReason');
+        const originSelect = document.getElementById('editOriginSelect');
+        const destSelect = document.getElementById('editDestSelect');
+        const driverInput = document.getElementById('editDriverName');
+        const plateInput = document.getElementById('editVehiclePlate');
+        const startOdoInput = document.getElementById('editStartOdo');
+        const endOdoInput = document.getElementById('editEndOdo');
+        const tollsInput = document.getElementById('editTolls');
+        const notesInput = document.getElementById('editNotes');
+
+        const sites = TransportDB.getSites();
+
+        if (targetId) targetId.value = trip.id;
+        if (idBadge) idBadge.textContent = trip.id;
+        if (managerInput) {
+            managerInput.value = trip.editedBy || '';
+            setTimeout(() => managerInput.focus(), 150);
+        }
+        if (reasonInput) reasonInput.value = trip.editReason || '';
+
+        // Reset and populate Origin select
+        if (originSelect) {
+            originSelect.innerHTML = sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Sup: ${s.supervisor || 'Unassigned'})</option>`).join('');
+            originSelect.value = trip.originSiteCode;
+        }
+
+        // Reset and populate Dest select
+        if (destSelect) {
+            let opts = '<option value="">-- No Destination Assigned (In Transit) --</option>';
+            opts += sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Sup: ${s.supervisor || 'Unassigned'})</option>`).join('');
+            destSelect.innerHTML = opts;
+            destSelect.value = trip.destSiteCode || '';
+        }
+
+        const originSearch = document.getElementById('editOriginSearch');
+        const destSearch = document.getElementById('editDestSearch');
+        if (originSearch) originSearch.value = '';
+        if (destSearch) destSearch.value = '';
+
+        const originBadge = document.getElementById('editOriginSiteBadge');
+        const destBadge = document.getElementById('editDestSiteBadge');
+        if (originBadge) originBadge.textContent = `${sites.length} Sites`;
+        if (destBadge) destBadge.textContent = `${sites.length} Sites`;
+
+        if (driverInput) driverInput.value = trip.driverName || '';
+        if (plateInput) plateInput.value = trip.vehiclePlate || '';
+        if (startOdoInput) startOdoInput.value = trip.startOdo || 0;
+        if (endOdoInput) endOdoInput.value = trip.endOdo !== null && trip.endOdo !== undefined ? trip.endOdo : '';
+        if (tollsInput) tollsInput.value = trip.tollsAndMisc || 0;
+        if (notesInput) notesInput.value = trip.notes || '';
+
+        if (modal) modal.classList.remove('hidden');
+    },
+
+    closeEditTripModal: function() {
+        const modal = document.getElementById('editTripModal');
+        if (modal) modal.classList.add('hidden');
+    },
+
+    filterEditOriginSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const originSelect = document.getElementById('editOriginSelect');
+        const countBadge = document.getElementById('editOriginSiteBadge');
+        if (!originSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} of ${sites.length} Sites`;
+
+        let html = `<option value="">-- Select Departure Site (${filtered.length} match${filtered.length === 1 ? '' : 'es'}) --</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Sup: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        originSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            originSelect.value = filtered[0].code;
+        }
+    },
+
+    filterEditDestSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const destSelect = document.getElementById('editDestSelect');
+        const countBadge = document.getElementById('editDestSiteBadge');
+        if (!destSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} of ${sites.length} Sites`;
+
+        let html = `<option value="">-- No Destination Assigned / In Transit --</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Sup: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        destSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            destSelect.value = filtered[0].code;
+        }
+    },
+
+    handleSaveTripEdit: function() {
+        try {
+            const tripId = document.getElementById('editTripTargetId')?.value;
+            const managerName = document.getElementById('editManagerName')?.value.trim();
+            const editReason = document.getElementById('editReason')?.value.trim();
+            const originCode = document.getElementById('editOriginSelect')?.value;
+            const destCode = document.getElementById('editDestSelect')?.value;
+            const driverName = document.getElementById('editDriverName')?.value.trim();
+            const vehiclePlate = document.getElementById('editVehiclePlate')?.value.trim().toUpperCase().replace(/\s+/g, '');
+            const startOdo = parseFloat(document.getElementById('editStartOdo')?.value);
+            const endOdoRaw = document.getElementById('editEndOdo')?.value.trim();
+            const endOdo = endOdoRaw !== '' ? parseFloat(endOdoRaw) : null;
+            const tolls = parseFloat(document.getElementById('editTolls')?.value) || 0;
+            const notes = document.getElementById('editNotes')?.value.trim() || '';
+
+            if (!tripId) throw new Error("Trip ID missing.");
+            if (!managerName) throw new Error("Manager name is required to record the audit log.");
+            if (!originCode) throw new Error("Departure / Origin Site is required.");
+            if (!driverName) throw new Error("Driver name is required.");
+            if (!vehiclePlate) throw new Error("Vehicle plate is required.");
+            if (isNaN(startOdo)) throw new Error("Valid start odometer reading is required.");
+            if (endOdo !== null && !isNaN(endOdo) && endOdo < startOdo) {
+                throw new Error(`Ending meter (${endOdo}) cannot be less than start meter (${startOdo}).`);
+            }
+
+            const sites = TransportDB.getSites();
+            const originSite = sites.find(s => s.code === originCode) || { code: originCode, name: originCode, supervisor: 'N/A', asstManager: 'N/A' };
+            const destSite = destCode ? (sites.find(s => s.code === destCode) || { code: destCode, name: destCode, supervisor: 'N/A', asstManager: 'N/A' }) : null;
+
+            const updatedFields = {
+                originSiteCode: originSite.code,
+                originSiteName: originSite.name,
+                originSupervisor: originSite.supervisor || 'N/A',
+                originAsstManager: originSite.asstManager || 'N/A',
+                destSiteCode: destSite ? destSite.code : null,
+                destSiteName: destSite ? destSite.name : null,
+                destSupervisor: destSite ? (destSite.supervisor || 'N/A') : null,
+                destAsstManager: destSite ? (destSite.asstManager || 'N/A') : null,
+                driverName,
+                vehiclePlate,
+                startOdo,
+                endOdo,
+                tollsAndMisc: tolls,
+                notes
+            };
+
+            TransportDB.updateTrip(tripId, updatedFields, managerName, editReason);
+            this.closeEditTripModal();
+            this.showNotification(`Trip ${tripId} updated by Manager ${managerName}.`, 'success');
+            this.refreshAll();
+        } catch (err) {
+            this.showNotification(`Update failed: ${err.message}`, 'error');
+        }
     },
 
     printTrip: function(tripId) {

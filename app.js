@@ -789,9 +789,17 @@ const App = {
                                 </p>
                             </div>
                         </div>
-                        <div class="text-right text-[11px] text-slate-400">
-                            <div class="font-bold text-slate-200">${timeStr}</div>
-                            <div>${dateStr}</div>
+                        <div class="flex items-center gap-1.5">
+                            <div class="text-right text-[11px] text-slate-400 mr-1">
+                                <div class="font-bold text-slate-200">${timeStr}</div>
+                                <div>${dateStr}</div>
+                            </div>
+                            <button onclick="App.openEditTripModal('${trip.id}')" class="w-8 h-8 rounded-xl bg-blue-950/60 text-blue-400 hover:bg-blue-900/80 border border-blue-800/60 flex items-center justify-center transition" title="Edit Trip Details">
+                                <i class="fa-solid fa-pen-to-square text-xs"></i>
+                            </button>
+                            <button onclick="App.deleteTrip('${trip.id}')" class="w-8 h-8 rounded-xl bg-rose-950/40 text-rose-400 hover:bg-rose-900/60 border border-rose-900/40 flex items-center justify-center transition" title="Cancel / Delete Trip">
+                                <i class="fa-solid fa-trash-can text-xs"></i>
+                            </button>
                         </div>
                     </div>
 
@@ -1195,7 +1203,21 @@ const App = {
 
             return `
                 <tr class="border-b border-slate-800/80 hover:bg-slate-800/30 transition text-xs">
-                    <td class="py-3.5 px-4 font-mono font-bold text-blue-400">${t.id}</td>
+                    <td class="py-3.5 px-4 font-mono font-bold text-blue-400">
+                        <div class="flex items-center gap-1.5">
+                            <span>${t.id}</span>
+                            <button onclick="App.openEditTripModal('${t.id}')" class="px-1.5 py-0.5 rounded bg-blue-950/80 text-blue-300 hover:bg-blue-900 border border-blue-800/80 text-[10px] font-sans font-semibold transition flex items-center gap-1" title="Edit Trip Details">
+                                <i class="fa-solid fa-pen text-[9px]"></i> Edit
+                            </button>
+                        </div>
+                        ${t.isEdited ? `
+                            <div class="mt-1">
+                                <span class="inline-flex items-center gap-1 text-[9px] text-amber-400 font-sans font-medium bg-amber-950/70 px-1.5 py-0.5 rounded border border-amber-800/60" title="Edited by ${t.editedBy} on ${new Date(t.editedAt).toLocaleString()}${t.editReason ? ` (${t.editReason})` : ''}">
+                                    <i class="fa-solid fa-clock-rotate-left text-[8px]"></i> by ${t.editedBy}
+                                </span>
+                            </div>
+                        ` : ''}
+                    </td>
                     <td class="py-3.5 px-4 text-slate-300">
                         <div>${dateStr}</div>
                         <div class="text-[10px] text-slate-500">${timeStr}</div>
@@ -1262,6 +1284,9 @@ const App = {
                     </td>
                     <td class="py-3.5 px-4 text-right">
                         <div class="flex items-center justify-end gap-1.5">
+                            <button onclick="App.openEditTripModal('${t.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-blue-400 hover:bg-slate-800 transition" title="Edit Trip Record">
+                                <i class="fa-solid fa-pen-to-square"></i>
+                            </button>
                             ${isComp ? `
                                 <button onclick="App.printTrip('${t.id}')" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition" title="Print Slip">
                                     <i class="fa-solid fa-print"></i>
@@ -1349,16 +1374,212 @@ const App = {
         this.refreshAll();
     },
 
+    // --- MANAGEMENT TRIP EDIT & AUDIT TRAIL ---
+    openEditTripModal: function(tripId) {
+        const trip = TransportDB.getTripById(tripId);
+        if (!trip) return;
+
+        const modal = document.getElementById('editTripModal');
+        const idBadge = document.getElementById('editTripIdBadge');
+        const targetId = document.getElementById('editTripTargetId');
+        const managerInput = document.getElementById('editManagerName');
+        const reasonInput = document.getElementById('editReason');
+        const originSelect = document.getElementById('editOriginSelect');
+        const destSelect = document.getElementById('editDestSelect');
+        const driverInput = document.getElementById('editDriverName');
+        const plateInput = document.getElementById('editVehiclePlate');
+        const startOdoInput = document.getElementById('editStartOdo');
+        const endOdoInput = document.getElementById('editEndOdo');
+        const tollsInput = document.getElementById('editTolls');
+        const notesInput = document.getElementById('editNotes');
+
+        const sites = TransportDB.getSites();
+
+        if (targetId) targetId.value = trip.id;
+        if (idBadge) idBadge.textContent = trip.id;
+        if (managerInput) {
+            managerInput.value = trip.editedBy || '';
+            setTimeout(() => managerInput.focus(), 150);
+        }
+        if (reasonInput) reasonInput.value = trip.editReason || '';
+
+        // Reset and populate Origin select
+        if (originSelect) {
+            originSelect.innerHTML = sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Sup: ${s.supervisor || 'Unassigned'})</option>`).join('');
+            originSelect.value = trip.originSiteCode;
+        }
+
+        // Reset and populate Dest select
+        if (destSelect) {
+            let opts = '<option value="">-- No Destination Assigned (In Transit) --</option>';
+            opts += sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Sup: ${s.supervisor || 'Unassigned'})</option>`).join('');
+            destSelect.innerHTML = opts;
+            destSelect.value = trip.destSiteCode || '';
+        }
+
+        const originSearch = document.getElementById('editOriginSearch');
+        const destSearch = document.getElementById('editDestSearch');
+        if (originSearch) originSearch.value = '';
+        if (destSearch) destSearch.value = '';
+
+        const originBadge = document.getElementById('editOriginSiteBadge');
+        const destBadge = document.getElementById('editDestSiteBadge');
+        if (originBadge) originBadge.textContent = `${sites.length} Sites`;
+        if (destBadge) destBadge.textContent = `${sites.length} Sites`;
+
+        if (driverInput) driverInput.value = trip.driverName || '';
+        if (plateInput) plateInput.value = trip.vehiclePlate || '';
+        if (startOdoInput) startOdoInput.value = trip.startOdo || 0;
+        if (endOdoInput) endOdoInput.value = trip.endOdo !== null && trip.endOdo !== undefined ? trip.endOdo : '';
+        if (tollsInput) tollsInput.value = trip.tollsAndMisc || 0;
+        if (notesInput) notesInput.value = trip.notes || '';
+
+        if (modal) modal.classList.remove('hidden');
+    },
+
+    closeEditTripModal: function() {
+        const modal = document.getElementById('editTripModal');
+        if (modal) modal.classList.add('hidden');
+    },
+
+    filterEditOriginSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const originSelect = document.getElementById('editOriginSelect');
+        const countBadge = document.getElementById('editOriginSiteBadge');
+        if (!originSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} of ${sites.length} Sites`;
+
+        let html = `<option value="">-- Select Departure Site (${filtered.length} match${filtered.length === 1 ? '' : 'es'}) --</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Sup: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        originSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            originSelect.value = filtered[0].code;
+        }
+    },
+
+    filterEditDestSites: function(searchTerm) {
+        const query = (searchTerm || '').trim().toLowerCase();
+        const destSelect = document.getElementById('editDestSelect');
+        const countBadge = document.getElementById('editDestSiteBadge');
+        if (!destSelect) return;
+
+        const sites = TransportDB.getSites();
+        const filtered = query ? sites.filter(s => 
+            (s.code && s.code.toLowerCase().includes(query)) || 
+            (s.name && s.name.toLowerCase().includes(query)) || 
+            (s.supervisor && s.supervisor.toLowerCase().includes(query))
+        ) : sites;
+
+        if (countBadge) countBadge.textContent = `${filtered.length} of ${sites.length} Sites`;
+
+        let html = `<option value="">-- No Destination Assigned / In Transit --</option>`;
+        html += filtered.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Sup: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        destSelect.innerHTML = html;
+
+        if (filtered.length === 1 && query.length >= 2) {
+            destSelect.value = filtered[0].code;
+        }
+    },
+
+    handleSaveTripEdit: function() {
+        try {
+            const tripId = document.getElementById('editTripTargetId')?.value;
+            const managerName = document.getElementById('editManagerName')?.value.trim();
+            const editReason = document.getElementById('editReason')?.value.trim();
+            const originCode = document.getElementById('editOriginSelect')?.value;
+            const destCode = document.getElementById('editDestSelect')?.value;
+            const driverName = document.getElementById('editDriverName')?.value.trim();
+            const vehiclePlate = document.getElementById('editVehiclePlate')?.value.trim().toUpperCase().replace(/\s+/g, '');
+            const startOdo = parseFloat(document.getElementById('editStartOdo')?.value);
+            const endOdoRaw = document.getElementById('editEndOdo')?.value.trim();
+            const endOdo = endOdoRaw !== '' ? parseFloat(endOdoRaw) : null;
+            const tolls = parseFloat(document.getElementById('editTolls')?.value) || 0;
+            const notes = document.getElementById('editNotes')?.value.trim() || '';
+
+            if (!tripId) throw new Error("Trip ID missing.");
+            if (!managerName) throw new Error("Manager name is required to record the audit log.");
+            if (!originCode) throw new Error("Departure / Origin Site is required.");
+            if (!driverName) throw new Error("Driver name is required.");
+            if (!vehiclePlate) throw new Error("Vehicle plate is required.");
+            if (isNaN(startOdo)) throw new Error("Valid start odometer reading is required.");
+            if (endOdo !== null && !isNaN(endOdo) && endOdo < startOdo) {
+                throw new Error(`Ending meter (${endOdo}) cannot be less than start meter (${startOdo}).`);
+            }
+
+            const sites = TransportDB.getSites();
+            const originSite = sites.find(s => s.code === originCode) || { code: originCode, name: originCode, supervisor: 'N/A', asstManager: 'N/A' };
+            const destSite = destCode ? (sites.find(s => s.code === destCode) || { code: destCode, name: destCode, supervisor: 'N/A', asstManager: 'N/A' }) : null;
+
+            const updatedFields = {
+                originSiteCode: originSite.code,
+                originSiteName: originSite.name,
+                originSupervisor: originSite.supervisor || 'N/A',
+                originAsstManager: originSite.asstManager || 'N/A',
+                destSiteCode: destSite ? destSite.code : null,
+                destSiteName: destSite ? destSite.name : null,
+                destSupervisor: destSite ? (destSite.supervisor || 'N/A') : null,
+                destAsstManager: destSite ? (destSite.asstManager || 'N/A') : null,
+                driverName,
+                vehiclePlate,
+                startOdo,
+                endOdo,
+                tollsAndMisc: tolls,
+                notes
+            };
+
+            TransportDB.updateTrip(tripId, updatedFields, managerName, editReason);
+            this.closeEditTripModal();
+            this.showNotification(`Trip ${tripId} updated by Manager ${managerName}.`, 'success');
+            this.refreshAll();
+        } catch (err) {
+            this.showNotification(`Update failed: ${err.message}`, 'error');
+        }
+    },
+
     printTrip: function(tripId) {
         const trip = TransportDB.getTripById(tripId);
         if (trip) AppExporter.printTripSlip(trip);
     },
 
     deleteTrip: function(tripId) {
-        if (confirm(`Delete trip record ${tripId}?`)) {
+        if (confirm(`Are you sure you want to permanently delete trip record ${tripId}? This will remove it from both your device and cloud storage.`)) {
             TransportDB.deleteTrip(tripId);
-            this.showNotification(`Trip ${tripId} removed.`, 'success');
+            this.showNotification(`Trip ${tripId} permanently deleted.`, 'success');
             this.refreshAll();
+        }
+    },
+
+    handleClearAllTrips: async function() {
+        const total = TransportDB.getTrips().length;
+        if (total === 0) {
+            this.showNotification('No past trips to delete.', 'info');
+            return;
+        }
+
+        const pin = prompt(`⚠️ CAUTION: You are about to permanently delete all ${total} past trip records from both this device and Cloud Database.\n\nPlease enter Management PIN to confirm:`);
+        if (!pin) return;
+
+        const correctPin = TransportDB.getManagementPin();
+        if (pin.trim() !== correctPin) {
+            this.showNotification('❌ Incorrect PIN. Clear cancelled.', 'error');
+            return;
+        }
+
+        try {
+            await TransportDB.clearAllTrips();
+            this.showNotification('✓ All past trip records have been permanently cleared.', 'success');
+            this.refreshAll();
+        } catch (e) {
+            this.showNotification(`Clear failed: ${e.message}`, 'error');
         }
     },
 
