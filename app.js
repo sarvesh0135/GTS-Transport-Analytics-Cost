@@ -20,6 +20,10 @@ const App = {
     currentActiveTripId: null,
     startPhotoBase64: null,
     endPhotoBase64: null,
+    startGPSLocation: null,   // GPS for check-in
+    endGPSLocation: null,     // GPS for check-out
+    selectedCheckinRegion: 'ALL',  // Region filter for check-in
+    selectedCheckoutRegion: 'ALL', // Region filter for check-out
     tripFilters: {
         status: 'ALL',
         originCode: 'ALL',
@@ -50,6 +54,7 @@ const App = {
         this.renderFuelRatesForm();
         this.renderActivePinDisplay();
         this.renderFirebaseConfigForm();
+        this.renderGoogleSheetsConfigForm();
         this.updateAutoSiteCodeSuggestion();
         this.startTimer();
     },
@@ -430,29 +435,44 @@ const App = {
             vehSelect.innerHTML = options;
         }
 
-        // 3. Origin Sites Dropdown (314 Sites)
+        // 3. Origin Sites Dropdown (respects region filter)
+        const originRegion = this.selectedCheckinRegion || 'ALL';
+        const filteredOriginSites = originRegion !== 'ALL' ? TransportDB.getSitesByRegion(originRegion) : sites;
         const originSelect = document.getElementById('checkinOriginSelect');
-        if (originSelect && originSelect.options.length <= 1) {
-            originSelect.innerHTML = '<option value="">-- Search / Select Departure Site (314 Sites Available) --</option>' +
-                sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        if (originSelect) {
+            originSelect.innerHTML =
+                `<option value="">-- Search / Select Departure Site (${filteredOriginSites.length} Sites Available) --</option>` +
+                `<option value="__NEW_SITE__" class="font-bold text-blue-400 bg-blue-950/40">➕ + Add New Site (Not in List)</option>` +
+                filteredOriginSites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
         }
+        const originBadge = document.getElementById('originSiteCountBadge');
+        if (originBadge) originBadge.textContent = `${filteredOriginSites.length} Sites`;
 
-        // 4. Destination Sites Dropdown (314 Sites)
+        // 4. Destination Sites Dropdown (respects region filter)
+        const destRegion = this.selectedCheckoutRegion || 'ALL';
+        const filteredDestSites = destRegion !== 'ALL' ? TransportDB.getSitesByRegion(destRegion) : sites;
         const destSelect = document.getElementById('checkoutDestSelect');
-        if (destSelect && destSelect.options.length <= 1) {
-            destSelect.innerHTML = '<option value="">-- Search / Select Arrival Site --</option>' +
-                sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        if (destSelect) {
+            destSelect.innerHTML =
+                `<option value="">-- Search / Select Arrival Site (${filteredDestSites.length} Sites Available) --</option>` +
+                `<option value="__NEW_SITE__" class="font-bold text-emerald-400 bg-emerald-950/40">➕ + Add New Site (Not in List)</option>` +
+                filteredDestSites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
         }
+        const destBadge = document.getElementById('destSiteCountBadge');
+        if (destBadge) destBadge.textContent = `${filteredDestSites.length} Sites`;
 
-        // 5. Filter Dropdowns
+        // 5. Filter Dropdowns for Trip Ledger
         const fOrigin = document.getElementById('filterOrigin');
         const fDest = document.getElementById('filterDest');
-        if (fOrigin && fOrigin.options.length <= 1) {
+        if (fOrigin) {
             fOrigin.innerHTML = '<option value="ALL">All Origin Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
         }
-        if (fDest && fDest.options.length <= 1) {
+        if (fDest) {
             fDest.innerHTML = '<option value="ALL">All Destination Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
         }
+
+        // 6. Region Filter Dropdowns
+        this.populateRegionDropdowns();
     },
 
     filterOriginSites: function(searchTerm) {
@@ -691,15 +711,137 @@ const App = {
     },
 
     handleFuelTypeChange: function(fuelType) {
-        const rates = TransportDB.getFuelRates();
+        // Use region-aware fuel rates
+        const region = this.selectedCheckinRegion || 'ALL';
+        const rates = TransportDB.getFuelRates(region !== 'ALL' ? region : null);
         const rateObj = rates[fuelType] || rates.Diesel;
         const note = document.getElementById('fuelTypeRateDisplay');
         if (note) {
-            note.textContent = `Live ${fuelType} Rate: ₹${rateObj.rate}/${rateObj.unit}`;
+            const regionLabel = region !== 'ALL' ? ` [${region}]` : '';
+            note.textContent = `Live ${fuelType} Rate${regionLabel}: ₹${rateObj.rate}/${rateObj.unit}`;
+            note.classList.remove('hidden');
         }
         const mileageInput = document.getElementById('checkinMileage');
         if (mileageInput && (!mileageInput.value || mileageInput.value === '0')) {
             mileageInput.value = rateObj.avgMileage || 10;
+        }
+    },
+
+    // --- REGION FILTER ---
+    handleCheckinRegionChange: function(region) {
+        this.selectedCheckinRegion = region || 'ALL';
+        this.populateCheckinSiteDropdowns(region);
+        // Update fuel rates for the selected region
+        const fuelType = document.querySelector('input[name="checkinFuelType"]:checked')?.value || 'Diesel';
+        this.handleFuelTypeChange(fuelType);
+    },
+
+    handleCheckoutRegionChange: function(region) {
+        this.selectedCheckoutRegion = region || 'ALL';
+        this.populateCheckoutSiteDropdown(region);
+    },
+
+    populateCheckinSiteDropdowns: function(region) {
+        const sites = region && region !== 'ALL' ? TransportDB.getSitesByRegion(region) : TransportDB.getSites();
+        const originSelect = document.getElementById('checkinOriginSelect');
+        const badge = document.getElementById('originSiteCountBadge');
+
+        if (originSelect) {
+            originSelect.innerHTML =
+                `<option value="">-- Search / Select Departure Site (${sites.length} Sites) --</option>` +
+                `<option value="__NEW_SITE__" class="font-bold text-blue-400">➕ + Add New Site</option>` +
+                sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        }
+        if (badge) badge.textContent = `${sites.length} Sites`;
+
+        // Reset search
+        const search = document.getElementById('checkinOriginSearch');
+        if (search) search.value = '';
+        const infoCard = document.getElementById('originSiteInfoCard');
+        if (infoCard) infoCard.classList.add('hidden');
+    },
+
+    populateCheckoutSiteDropdown: function(region) {
+        const sites = region && region !== 'ALL' ? TransportDB.getSitesByRegion(region) : TransportDB.getSites();
+        const destSelect = document.getElementById('checkoutDestSelect');
+        const badge = document.getElementById('destSiteCountBadge');
+
+        if (destSelect) {
+            destSelect.innerHTML =
+                `<option value="">-- Search / Select Arrival Site (${sites.length} Sites) --</option>` +
+                `<option value="__NEW_SITE__" class="font-bold text-emerald-400">➕ + Add New Site</option>` +
+                sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+        }
+        if (badge) badge.textContent = `${sites.length} Sites`;
+
+        // Reset search
+        const search = document.getElementById('checkoutDestSearch');
+        if (search) search.value = '';
+        const infoCard = document.getElementById('destSiteInfoCard');
+        if (infoCard) infoCard.classList.add('hidden');
+    },
+
+    populateRegionDropdowns: function() {
+        const regions = TransportDB.getRegions();
+        const checkinRegionSel = document.getElementById('checkinRegionFilter');
+        const checkoutRegionSel = document.getElementById('checkoutRegionFilter');
+
+        [checkinRegionSel, checkoutRegionSel].forEach((sel, idx) => {
+            if (!sel) return;
+            sel.innerHTML =
+                '<option value="ALL">🌍 All Regions</option>' +
+                regions.map(r => `<option value="${r}">${r}</option>`).join('');
+        });
+    },
+
+    // --- GPS CAPTURE ---
+    captureGPS: async function(type) {
+        // type = 'checkin' or 'checkout'
+        const btnId = type === 'checkin' ? 'gpsCheckinBtn' : 'gpsCheckoutBtn';
+        const displayId = type === 'checkin' ? 'gpsCheckinDisplay' : 'gpsCheckoutDisplay';
+        const btn = document.getElementById(btnId);
+        const display = document.getElementById(displayId);
+
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Getting GPS...';
+        }
+
+        try {
+            const loc = await TransportDB.getCurrentGPSLocation();
+
+            if (type === 'checkin') {
+                this.startGPSLocation = loc;
+            } else {
+                this.endGPSLocation = loc;
+            }
+
+            if (display) {
+                display.innerHTML = `
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-emerald-400 font-semibold text-[11px]">
+                            <i class="fa-solid fa-location-dot"></i> ${loc.formattedStr}
+                        </span>
+                        <a href="${loc.mapsUrl}" target="_blank" rel="noopener noreferrer"
+                           class="text-blue-400 underline text-[10px] font-semibold hover:text-blue-300">
+                            📌 Open in Maps
+                        </a>
+                    </div>`;
+                display.classList.remove('hidden');
+            }
+
+            this.showNotification(`📍 GPS location captured: ${loc.formattedStr}`, 'success');
+        } catch (err) {
+            this.showNotification(`GPS Error: ${err.message}`, 'error');
+            if (display) {
+                display.innerHTML = `<span class="text-rose-400 text-[11px]"><i class="fa-solid fa-triangle-exclamation"></i> ${err.message}</span>`;
+                display.classList.remove('hidden');
+            }
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> Capture GPS Location';
+            }
         }
     },
 
@@ -840,6 +982,7 @@ const App = {
                 originAsstManager: originSite.asstManager,
                 startOdo,
                 startPhoto: this.startPhotoBase64,
+                startLocation: this.startGPSLocation || null,
                 notes
             });
 
@@ -848,10 +991,14 @@ const App = {
             document.getElementById('checkinCustomVehicleBox')?.classList.add('hidden');
             document.getElementById('checkinCustomOriginBox')?.classList.add('hidden');
             this.startPhotoBase64 = null;
+            this.startGPSLocation = null;
             document.getElementById('startPhotoPreview')?.classList.add('hidden');
             document.getElementById('originSiteInfoCard')?.classList.add('hidden');
+            const gpsCheckinDisplay = document.getElementById('gpsCheckinDisplay');
+            if (gpsCheckinDisplay) gpsCheckinDisplay.classList.add('hidden');
 
             this.showNotification(`Trip Started! Vehicle ${newTrip.vehiclePlate} is In Transit from [${originSite.code}] ${originSite.name}.`, 'success');
+            if (window.GoogleSheetsSync) window.GoogleSheetsSync.syncTrip(newTrip);
             this.refreshAll();
         } catch (err) {
             this.showNotification(err.message, 'error');
@@ -888,6 +1035,31 @@ const App = {
             const timeStr = checkInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             const dateStr = checkInDate.toLocaleDateString([], { month: 'short', day: 'numeric' });
 
+            const startLoc = trip.startLocation;
+            let gpsHtml = '';
+            if (startLoc) {
+                const locStr = typeof startLoc === 'object' ? (startLoc.formattedStr || `${startLoc.lat}, ${startLoc.lng}`) : startLoc;
+                gpsHtml = `
+                    <div class="flex items-center justify-between p-2.5 bg-emerald-950/40 border border-emerald-800/60 rounded-xl text-xs">
+                        <span class="text-emerald-300 font-semibold text-[11px] truncate">
+                            <i class="fa-solid fa-location-dot text-emerald-400 mr-1"></i> Start GPS: ${locStr}
+                        </span>
+                        <button onclick="App.openGPSModal('${trip.id}')" class="px-2 py-1 bg-emerald-600/30 hover:bg-emerald-600/50 text-white rounded-lg text-[10px] font-bold transition flex items-center gap-1">
+                            <i class="fa-solid fa-map-location-dot"></i> View GPS Map
+                        </button>
+                    </div>
+                `;
+            } else {
+                gpsHtml = `
+                    <div class="flex items-center justify-between p-2 bg-slate-950/80 border border-slate-800 rounded-xl text-[11px] text-slate-400">
+                        <span><i class="fa-solid fa-location-crosshairs text-slate-500 mr-1"></i> Departure GPS: Not captured</span>
+                        <button onclick="App.openGPSModal('${trip.id}')" class="text-blue-400 underline font-semibold text-[10px]">
+                            📍 GPS Tracker
+                        </button>
+                    </div>
+                `;
+            }
+
             return `
                 <div class="bg-slate-900/95 border border-blue-500/30 rounded-3xl p-5 shadow-2xl space-y-4 hover:border-blue-500/50 transition">
                     <div class="flex items-start justify-between">
@@ -912,6 +1084,9 @@ const App = {
                                 <div class="font-bold text-slate-200">${timeStr}</div>
                                 <div>${dateStr}</div>
                             </div>
+                            <button onclick="App.openGPSModal('${trip.id}')" class="w-8 h-8 rounded-xl bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/80 border border-emerald-800/60 flex items-center justify-center transition" title="View Live GPS Location">
+                                <i class="fa-solid fa-location-dot text-xs"></i>
+                            </button>
                             <button onclick="App.openEditTripModal('${trip.id}')" class="w-8 h-8 rounded-xl bg-blue-950/60 text-blue-400 hover:bg-blue-900/80 border border-blue-800/60 flex items-center justify-center transition" title="Edit Trip Details">
                                 <i class="fa-solid fa-pen-to-square text-xs"></i>
                             </button>
@@ -933,6 +1108,8 @@ const App = {
                             <div class="text-[10px] text-emerald-400">${trip.mileage} km/L (${trip.fuelType})</div>
                         </div>
                     </div>
+
+                    ${gpsHtml}
 
                     <div class="pt-1">
                         <div class="text-[11px] text-slate-400 mb-1.5 flex items-center gap-1.5 font-medium">
@@ -968,6 +1145,16 @@ const App = {
         if (checkoutNotesEl) checkoutNotesEl.value = '';
         document.getElementById('endPhotoPreview')?.classList.add('hidden');
         document.getElementById('destSiteInfoCard')?.classList.add('hidden');
+
+        // Reset GPS state for checkout
+        this.endGPSLocation = null;
+        const gpsCheckoutDisplay = document.getElementById('gpsCheckoutDisplay');
+        if (gpsCheckoutDisplay) gpsCheckoutDisplay.classList.add('hidden');
+
+        // Reset region filter for checkout modal
+        const checkoutRegionFilter = document.getElementById('checkoutRegionFilter');
+        if (checkoutRegionFilter) checkoutRegionFilter.value = 'ALL';
+        this.selectedCheckoutRegion = 'ALL';
 
         document.getElementById('calcDistance').textContent = '0 km';
         document.getElementById('calcFuelConsumed').textContent = `0 ${trip.fuelUnit}`;
@@ -1074,11 +1261,14 @@ const App = {
                 endOdo,
                 tollsAndMisc: tolls,
                 endPhoto: this.endPhotoBase64,
+                endLocation: this.endGPSLocation || null,
                 notes
             });
 
+            this.endGPSLocation = null;
             this.closeCheckOutModal();
             this.showNotification(`Trip ${completedTrip.id} Completed! Reached [${destSite.code}] ${destSite.name} (${completedTrip.distance} km).`, 'success');
+            if (window.GoogleSheetsSync) window.GoogleSheetsSync.syncTrip(completedTrip);
             this.refreshAll();
         } catch (err) {
             this.showNotification(err.message, 'error');
@@ -1952,6 +2142,92 @@ const App = {
         }
 
         FirebaseSync.updateSyncBadge(FirebaseSync.isInitialized);
+    },
+
+    // --- GOOGLE SHEETS SYNC HANDLERS ---
+    openGoogleSheetsModal: function() {
+        const modal = document.getElementById('googleSheetsSyncModal');
+        if (modal) {
+            this.renderGoogleSheetsConfigForm();
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+        }
+    },
+
+    closeGoogleSheetsModal: function() {
+        const modal = document.getElementById('googleSheetsSyncModal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
+    },
+
+    renderGoogleSheetsConfigForm: function() {
+        const input = document.getElementById('googleSheetsWebAppUrlInput');
+        const statusLabel = document.getElementById('googleSheetsSyncStatusLabel');
+        const currentUrl = window.GoogleSheetsSync ? window.GoogleSheetsSync.getUrl() : '';
+
+        if (input) input.value = currentUrl;
+        if (statusLabel) {
+            if (currentUrl) {
+                statusLabel.innerHTML = '<span class="text-emerald-400 font-bold">🟢 Connected to Google Sheets</span>';
+            } else {
+                statusLabel.innerHTML = '<span class="text-slate-500 font-bold">⚪ Local Storage Mode</span>';
+            }
+        }
+    },
+
+    handleSaveGoogleSheetsUrl: async function() {
+        const input = document.getElementById('googleSheetsWebAppUrlInput');
+        const url = input ? input.value.trim() : '';
+
+        if (!url) {
+            if (confirm("Clear Web App URL and revert to Local Storage mode?")) {
+                if (window.GoogleSheetsSync) window.GoogleSheetsSync.setUrl('');
+                this.renderGoogleSheetsConfigForm();
+                this.showNotification('Google Sheets disconnected. App is now in Local Storage mode.', 'info');
+                this.closeGoogleSheetsModal();
+            }
+            return;
+        }
+
+        this.showNotification('Testing Google Sheets Web App Connection...', 'info');
+        const testRes = await window.GoogleSheetsSync.testConnection(url);
+
+        if (testRes.success) {
+            window.GoogleSheetsSync.setUrl(url);
+            this.renderGoogleSheetsConfigForm();
+            this.showNotification('🟢 Connected to Google Sheets! Master Sites & Responses will now sync live.', 'success');
+            this.closeGoogleSheetsModal();
+        } else {
+            this.showNotification(`⚠️ Connection Test Failed: ${testRes.error}`, 'error');
+        }
+    },
+
+    handleTestGoogleSheetsConnection: async function() {
+        const input = document.getElementById('googleSheetsWebAppUrlInput');
+        const url = input ? input.value.trim() : '';
+
+        if (!url) {
+            this.showNotification('Please enter a Google Apps Script Web App URL first.', 'error');
+            return;
+        }
+
+        this.showNotification('Testing connection to Google Sheet API...', 'info');
+        const res = await window.GoogleSheetsSync.testConnection(url);
+
+        if (res.success) {
+            this.showNotification(`✅ Connection Successful! ${res.message}`, 'success');
+        } else {
+            this.showNotification(`❌ Test Failed: ${res.error}`, 'error');
+        }
+    },
+
+    handleSyncGoogleSheetsNow: function() {
+        if (window.GoogleSheetsSync) {
+            this.showNotification('Syncing Master Sites & Responses with Google Sheet...', 'info');
+            window.GoogleSheetsSync.syncAll();
+        }
     },
 
     startTimer: function() {

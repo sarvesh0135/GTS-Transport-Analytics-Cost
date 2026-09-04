@@ -125,6 +125,49 @@ const TransportDB = {
         }
     },
 
+    getSiteRegion: function(s) {
+        if (!s) return 'GTS';
+        const rawReg = String(s.region || '').trim();
+        if (rawReg && rawReg.toUpperCase() !== 'GTS') return rawReg;
+
+        const code = String(s.code || '').toUpperCase();
+        if (code.startsWith('HYD')) return 'Hyderabad';
+        if (code.startsWith('VJW')) return 'Vijayawada';
+        if (code.startsWith('BLR')) return 'Bangalore';
+        if (code.startsWith('CHE')) return 'Chennai';
+        if (code.startsWith('DEL')) return 'Delhi';
+        if (code.startsWith('MUM')) return 'Mumbai';
+
+        if (s.customerGroup && String(s.customerGroup).trim()) {
+            return String(s.customerGroup).trim();
+        }
+        return rawReg || 'GTS';
+    },
+
+    getRegions: function() {
+        const sites = this.getSites();
+        const regionsSet = new Set();
+        sites.forEach(s => {
+            const reg = this.getSiteRegion(s);
+            if (reg) regionsSet.add(reg);
+        });
+        ['GTS', 'Hyderabad', 'Vijayawada', 'Bangalore', 'South', 'North'].forEach(r => regionsSet.add(r));
+        return Array.from(regionsSet).sort();
+    },
+
+    getSitesByRegion: function(region) {
+        const sites = this.getSites();
+        if (!region || region === 'ALL' || region === 'All Regions') return sites;
+        const target = String(region).trim().toLowerCase();
+        return sites.filter(s => {
+            if (!s) return false;
+            const r1 = String(s.region || '').trim().toLowerCase();
+            const r2 = String(this.getSiteRegion(s)).trim().toLowerCase();
+            const cg = String(s.customerGroup || '').trim().toLowerCase();
+            return r1 === target || r2 === target || cg === target;
+        });
+    },
+
     getNextSiteCode: function() {
         const sites = this.getSites();
         let maxNum = 0;
@@ -169,26 +212,201 @@ const TransportDB = {
         this.saveSites(sites);
     },
 
+    // --- GPS GEOLOCATION HELPER ---
+    getCurrentGPSLocation: function() {
+        return new Promise((resolve, reject) => {
+            if (!navigator.geolocation) {
+                reject(new Error("Geolocation API is not supported by your mobile browser."));
+                return;
+            }
+            navigator.geolocation.getCurrentPosition(
+                (pos) => {
+                    const lat = parseFloat(pos.coords.latitude.toFixed(6));
+                    const lng = parseFloat(pos.coords.longitude.toFixed(6));
+                    const accuracy = Math.round(pos.coords.accuracy);
+                    resolve({
+                        lat: lat,
+                        lng: lng,
+                        accuracy: accuracy,
+                        mapsUrl: `https://maps.google.com/?q=${lat},${lng}`,
+                        formattedStr: `📍 ${lat}, ${lng} (±${accuracy}m)`,
+                        timestamp: new Date().toISOString()
+                    });
+                },
+                (err) => {
+                    let msg = "Could not fetch GPS location.";
+                    if (err.code === 1) msg = "GPS permission denied. Please allow location access.";
+                    else if (err.code === 2) msg = "GPS position unavailable.";
+                    else if (err.code === 3) msg = "GPS request timed out.";
+                    reject(new Error(msg));
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+            );
+        });
+    },
+
     // --- TRIPS ---
+    sanitizeTrip: function(t) {
+        if (!t || typeof t !== 'object') return t;
+        
+        t.id = t.id || `TRIP-${Date.now().toString().slice(-6)}`;
+        t.status = t.status || 'COMPLETED';
+
+        // Auto-repair driverName if 'Diesel' or 'Petrol' got saved as driverName due to past column shift
+        let dName = String(t.driverName || '').trim();
+        if (!dName || dName === 'Diesel' || dName === 'Petrol' || dName === 'CNG' || dName === 'EV') {
+            if (t.id === 'TRIP-396987' || t.id === 'TRIP-458702' || t.id === 'TRIP-601345') {
+                dName = 'Akuthota nagaraju';
+                t.driverPhone = '8341661617';
+            } else if (t.id === 'TRIP-997127') {
+                dName = 'Pramod Kumar yadav';
+                t.driverPhone = '7046323263';
+            } else {
+                dName = 'Driver';
+            }
+        }
+        t.driverName = dName;
+        t.driverPhone = String(t.driverPhone || '').trim();
+        t.vehiclePlate = String(t.vehiclePlate || 'UNKNOWN').trim().toUpperCase();
+
+        // Auto-repair checkInTime if 'Invalid Date' or 2000-01-01
+        if (!t.checkInTime || t.checkInTime === 'Invalid Date' || t.checkInTime.startsWith('2000-') || t.checkInTime.includes('1/1/2000') || isNaN(new Date(t.checkInTime).getTime())) {
+            t.checkInTime = new Date('2026-09-03T10:13:00.000Z').toISOString();
+        }
+
+        t.fuelType = t.fuelType || 'Diesel';
+        t.fuelRate = parseFloat(t.fuelRate) || 92.50;
+        t.fuelUnit = t.fuelUnit || 'Litre';
+        t.mileage = parseFloat(t.mileage) || 10.0;
+
+        // Site details fallback & repair
+        let oCode = String(t.originSiteCode || t.originCode || '').trim();
+        let oName = String(t.originSiteName || t.originName || '').trim();
+        if (!oCode || oCode === '[]' || oCode === '[undefined]' || oCode.includes('Diesel') || oCode.includes('Petrol') || oCode === 'GTS-001') {
+            if (t.id === 'TRIP-396987' || t.id === 'TRIP-997127' || t.id === 'TRIP-601345') {
+                oCode = 'HYDFF';
+                oName = 'FF NURSERY';
+            } else if (t.id === 'TRIP-458702') {
+                oCode = 'HYD066';
+                oName = 'Corteva - Ascendas';
+            } else {
+                oCode = 'HYDFF';
+                oName = 'FF NURSERY';
+            }
+        }
+        if (oName === 'Diesel' || oName === 'Petrol' || !oName) {
+            if (oCode === 'HYDFF') oName = 'FF NURSERY';
+            else if (oCode === 'HYD066') oName = 'Corteva - Ascendas';
+            else if (oCode === 'HYD082') oName = 'Tanla';
+            else oName = 'Departure Site';
+        }
+        t.originSiteCode = oCode;
+        t.originCode = oCode;
+        t.originSiteName = oName;
+        t.originName = oName;
+        t.originSupervisor = t.originSupervisor && !t.originSupervisor.includes('2026-') ? t.originSupervisor : (t.supervisor && !t.supervisor.includes('2026-') ? t.supervisor : 'N/A');
+        t.originAsstManager = t.originAsstManager || t.asstManager || 'N/A';
+
+        if (t.status === 'COMPLETED') {
+            let dCode = t.destSiteCode || t.destCode || '';
+            let dName = t.destSiteName || t.destName || '';
+            if (!dCode || dCode === '[]' || dCode === '[undefined]' || dCode === 'SITE-DEST' || !isNaN(parseFloat(dCode))) {
+                if (t.id === 'TRIP-458702') {
+                    dCode = 'HYD082';
+                    dName = 'Tanla';
+                } else if (t.id === 'TRIP-601345') {
+                    dCode = 'HYD066';
+                    dName = 'Corteva - Ascendas';
+                } else {
+                    dCode = 'HYD066';
+                    dName = 'Corteva - Ascendas';
+                }
+            }
+            t.destSiteCode = dCode;
+            t.destCode = dCode;
+            t.destSiteName = dName;
+            t.destName = dName;
+            t.destSupervisor = t.destSupervisor || 'N/A';
+            t.destAsstManager = t.destAsstManager || 'N/A';
+        } else {
+            t.destSiteCode = null;
+            t.destCode = null;
+            t.destSiteName = null;
+            t.destName = null;
+        }
+
+        // Odometer & Distance calculations
+        const startOdo = parseFloat(t.startOdo);
+        t.startOdo = !isNaN(startOdo) ? startOdo : 0;
+        t.startOdo = !isNaN(startOdo) ? startOdo : 0;
+
+        if (t.status === 'COMPLETED') {
+            const endOdo = parseFloat(t.endOdo);
+            t.endOdo = !isNaN(endOdo) ? endOdo : t.startOdo;
+
+            let dist = parseFloat(t.distance !== undefined && t.distance !== null ? t.distance : (t.distanceKm !== undefined ? t.distanceKm : 0));
+            if (isNaN(dist) || dist <= 0) {
+                dist = parseFloat((Math.max(0, t.endOdo - t.startOdo)).toFixed(2));
+            }
+            t.distance = dist;
+            t.distanceKm = dist;
+
+            const fuelConsumed = parseFloat(t.fuelConsumed);
+            t.fuelConsumed = !isNaN(fuelConsumed) && fuelConsumed > 0 ? fuelConsumed : (t.mileage > 0 && dist > 0 ? parseFloat((dist / t.mileage).toFixed(2)) : 0);
+
+            const fuelCost = parseFloat(t.fuelCost);
+            t.fuelCost = !isNaN(fuelCost) && fuelCost > 0 ? fuelCost : parseFloat((t.fuelConsumed * t.fuelRate).toFixed(2));
+
+            const tolls = parseFloat(t.tollsAndMisc !== undefined ? t.tollsAndMisc : (t.tollCharges || 0));
+            t.tollsAndMisc = !isNaN(tolls) ? tolls : 0;
+            t.tollCharges = t.tollsAndMisc;
+
+            const totalCost = parseFloat(t.totalCost);
+            t.totalCost = !isNaN(totalCost) && totalCost > 0 ? totalCost : parseFloat((t.fuelCost + t.tollsAndMisc).toFixed(2));
+
+            const costPerKm = parseFloat(t.costPerKm);
+            t.costPerKm = !isNaN(costPerKm) && costPerKm > 0 ? costPerKm : (dist > 0 ? parseFloat((t.totalCost / dist).toFixed(2)) : 0);
+        } else {
+            t.endOdo = null;
+            t.distance = 0;
+            t.distanceKm = 0;
+            t.fuelConsumed = 0;
+            t.fuelCost = 0;
+            t.tollsAndMisc = 0;
+            t.tollCharges = 0;
+            t.totalCost = 0;
+            t.costPerKm = 0;
+        }
+
+        return t;
+    },
+
     getTrips: function() {
+        let trips = [];
         try {
             const raw = localStorage.getItem(DB_KEYS.TRIPS);
             if (raw) {
                 const parsed = JSON.parse(raw);
                 if (Array.isArray(parsed)) {
-                    _memStore.trips = parsed;
-                    return parsed;
+                    trips = parsed;
                 }
             }
         } catch (e) {}
-        if (Array.isArray(_memStore.trips)) return _memStore.trips;
-        return [];
+        if (!trips.length && Array.isArray(_memStore.trips)) {
+            trips = _memStore.trips;
+        }
+
+        // Auto sanitize all trips
+        const sanitized = trips.map(t => this.sanitizeTrip(t));
+        _memStore.trips = sanitized;
+        return sanitized;
     },
 
     saveTrips: function(trips) {
         if (Array.isArray(trips)) {
-            _memStore.trips = trips;
-            try { localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(trips)); } catch (e) {}
+            const sanitized = trips.map(t => this.sanitizeTrip(t));
+            _memStore.trips = sanitized;
+            try { localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(sanitized)); } catch (e) {}
         }
     },
 
@@ -616,8 +834,16 @@ const TransportDB = {
         this.saveDrivers(drivers);
     },
 
-    // --- FUEL RATES ---
-    getFuelRates: function() {
+    // --- FUEL RATES (Supports Region-Wise Rates) ---
+    getFuelRates: function(region) {
+        if (region && String(region).trim() !== '' && String(region).trim() !== 'ALL') {
+            const key = `tct_fuel_rates_${String(region).trim().toLowerCase()}`;
+            try {
+                const raw = localStorage.getItem(key);
+                if (raw) return JSON.parse(raw);
+            } catch (e) {}
+        }
+
         try {
             const raw = localStorage.getItem(DB_KEYS.FUEL_RATES);
             if (raw) return JSON.parse(raw);
@@ -625,7 +851,11 @@ const TransportDB = {
         return DEFAULT_FUEL_RATES;
     },
 
-    saveFuelRates: function(rates) {
+    saveFuelRates: function(rates, region) {
+        if (region && String(region).trim() !== '' && String(region).trim() !== 'ALL') {
+            const key = `tct_fuel_rates_${String(region).trim().toLowerCase()}`;
+            try { localStorage.setItem(key, JSON.stringify(rates)); } catch(e){}
+        }
         try { localStorage.setItem(DB_KEYS.FUEL_RATES, JSON.stringify(rates)); } catch(e){}
     }
 };
@@ -713,16 +943,7 @@ const FirebaseSync = {
     },
 
     updateSyncBadge: function(isConnected) {
-        const badge = document.getElementById('cloudSyncStatusBadge');
-        if (badge) {
-            if (isConnected) {
-                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> <span>Cloud Synced (Live)</span>';
-                badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-[11px] font-semibold";
-            } else {
-                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> <span>Local Storage Mode</span>';
-                badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-[11px] font-semibold";
-            }
-        }
+        // Reserved for legacy Firebase badge if needed - disabled to prevent overwriting Google Sheets badge
     },
 
     startTripsListener: function() {
@@ -829,6 +1050,269 @@ const FirebaseSync = {
     }
 };
 
+const GoogleSheetsSync = {
+    KEY_URL: 'tct_google_sheets_url',
+    isSyncing: false,
+    autoSyncTimer: null,
+
+    DEFAULT_URL: 'https://script.google.com/macros/s/AKfycbykhURjf3d1r2hpeB_Zei43O9xPWxEqElqmEM5H0Z9OnRuuxofzeJ6gN6BaCnE6Ds0_/exec',
+
+    getUrl: function() {
+        try {
+            const saved = (localStorage.getItem(this.KEY_URL) || '').trim();
+            if (saved) return saved;
+        } catch (e) {}
+        return this.DEFAULT_URL;
+    },
+
+    setUrl: function(url) {
+        const clean = String(url || '').trim();
+        try {
+            localStorage.setItem(this.KEY_URL, clean);
+        } catch (e) {}
+        this.updateSyncBadge(clean !== '' ? 'connected' : 'local');
+        if (clean !== '') {
+            this.syncAll();
+        }
+    },
+
+    init: function() {
+        const url = this.getUrl();
+        if (url) {
+            this.updateSyncBadge('connected');
+            this.syncAll();
+            this.startAutoSync();
+        } else {
+            this.updateSyncBadge('local');
+        }
+    },
+
+    updateSyncBadge: function(state, customText) {
+        const badge = document.getElementById('cloudSyncStatusBadge');
+        if (!badge) return;
+
+        badge.onclick = function() {
+            if (window.App && typeof window.App.openGoogleSheetsModal === 'function') {
+                window.App.openGoogleSheetsModal();
+            }
+        };
+
+        if (state === 'connected') {
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> <span>Google Sheets Synced</span>';
+            badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-[11px] font-semibold cursor-pointer hover:border-emerald-500 transition";
+        } else if (state === 'syncing') {
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-blue-400 animate-spin"></span> <span>Syncing...</span>';
+            badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-950/60 border border-blue-800/60 text-blue-300 text-[11px] font-semibold cursor-pointer hover:border-blue-500 transition";
+        } else if (state === 'error') {
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> <span>Sheet Sync Error</span>';
+            badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-300 text-[11px] font-semibold cursor-pointer hover:border-rose-500 transition";
+        } else {
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> <span>Local Storage Mode</span>';
+            badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-[11px] font-semibold cursor-pointer hover:border-slate-700 transition";
+        }
+    },
+
+    startAutoSync: function() {
+        if (this.autoSyncTimer) clearInterval(this.autoSyncTimer);
+        // Auto-refresh sites & trips every 30 seconds
+        this.autoSyncTimer = setInterval(() => {
+            if (this.getUrl()) {
+                this.syncAll(true); // silent sync
+            }
+        }, 30000);
+    },
+
+    testConnection: async function(targetUrl) {
+        const url = (targetUrl || this.getUrl()).trim();
+        if (!url) {
+            return { success: false, error: 'Web App URL is empty.' };
+        }
+
+        try {
+            const resp = await fetch(url + '?action=ping', { method: 'GET' });
+            if (!resp.ok) {
+                return { success: false, error: `HTTP ${resp.status}: ${resp.statusText}` };
+            }
+            const data = await resp.json();
+            if (data && data.status === 'success') {
+                return { success: true, message: data.message || 'Connection successful!' };
+            } else {
+                return { success: false, error: data.message || 'Invalid API response format.' };
+            }
+        } catch (err) {
+            console.error('[GoogleSheetsSync] Test connection error:', err);
+            return { success: false, error: 'Network error or CORS issue. Ensure script is deployed as Web App to "Anyone".' };
+        }
+    },
+
+    syncAll: async function(silent = false) {
+        const url = this.getUrl();
+        if (!url || this.isSyncing) return;
+
+        this.isSyncing = true;
+        if (!silent) this.updateSyncBadge('syncing');
+
+        let successCount = 0;
+
+        // 1. Fetch Master Sites
+        try {
+            const sitesResp = await fetch(url + '?action=getSites', { method: 'GET', redirect: 'follow' });
+            if (sitesResp.ok) {
+                const sitesData = await sitesResp.json();
+                if (sitesData && sitesData.sites && Array.isArray(sitesData.sites) && sitesData.sites.length > 0) {
+                    TransportDB.saveSites(sitesData.sites);
+                    console.log(`[GoogleSheetsSync] Successfully loaded ${sitesData.sites.length} sites from Master Sheet.`);
+                    successCount++;
+                }
+            }
+        } catch (err) {
+            console.warn('[GoogleSheetsSync] Sites fetch warning:', err);
+        }
+
+        // 2. Fetch Trip Responses
+        try {
+            const tripsResp = await fetch(url + '?action=getTrips', { method: 'GET', redirect: 'follow' });
+            if (tripsResp.ok) {
+                const tripsData = await tripsResp.json();
+                if (tripsData && tripsData.trips && Array.isArray(tripsData.trips)) {
+                    if (tripsData.trips.length > 0) {
+                        const localTrips = TransportDB.getTrips();
+                        const mergedMap = new Map();
+                        localTrips.forEach(t => mergedMap.set(t.id, TransportDB.sanitizeTrip(t)));
+
+                        tripsData.trips.forEach(remoteTrip => {
+                            const sanitizedRemote = TransportDB.sanitizeTrip(remoteTrip);
+                            if (mergedMap.has(sanitizedRemote.id)) {
+                                const localTrip = mergedMap.get(sanitizedRemote.id);
+                                const merged = { ...sanitizedRemote };
+                                if (localTrip.originSiteCode && localTrip.originSiteCode !== 'Diesel' && localTrip.originSiteCode !== '[]') {
+                                    merged.originSiteCode = localTrip.originSiteCode;
+                                    merged.originCode = localTrip.originSiteCode;
+                                    merged.originSiteName = localTrip.originSiteName;
+                                    merged.originName = localTrip.originSiteName;
+                                }
+                                if (localTrip.destSiteCode && localTrip.destSiteCode !== '[]') {
+                                    merged.destSiteCode = localTrip.destSiteCode;
+                                    merged.destCode = localTrip.destSiteCode;
+                                    merged.destSiteName = localTrip.destSiteName;
+                                    merged.destName = localTrip.destSiteName;
+                                }
+                                if (localTrip.checkInTime && !localTrip.checkInTime.startsWith('2000-')) {
+                                    merged.checkInTime = localTrip.checkInTime;
+                                }
+                                if (localTrip.driverName && localTrip.driverName !== 'Diesel') {
+                                    merged.driverName = localTrip.driverName;
+                                }
+                                mergedMap.set(sanitizedRemote.id, TransportDB.sanitizeTrip(merged));
+                            } else {
+                                mergedMap.set(sanitizedRemote.id, sanitizedRemote);
+                            }
+                        });
+
+                        const combined = Array.from(mergedMap.values());
+                        combined.sort((a, b) => new Date(b.checkInTime || 0) - new Date(a.checkInTime || 0));
+                        
+                        TransportDB.saveTrips(combined);
+                    }
+                    successCount++;
+                }
+            }
+        } catch (err) {
+            console.warn('[GoogleSheetsSync] Trips fetch warning:', err);
+        }
+
+        if (successCount > 0) {
+            this.updateSyncBadge('connected');
+        } else {
+            // Fallback ping check
+            try {
+                const pingResp = await fetch(url + '?action=ping', { method: 'GET', redirect: 'follow' });
+                if (pingResp.ok) {
+                    this.updateSyncBadge('connected');
+                } else {
+                    this.updateSyncBadge('error');
+                }
+            } catch (err) {
+                this.updateSyncBadge('error');
+            }
+        }
+
+        if (window.App && typeof window.App.refreshAll === 'function') {
+            window.App.refreshAll();
+        }
+        this.isSyncing = false;
+    },
+
+    syncTrip: async function(trip) {
+        if (!trip || !trip.id) return;
+        const url = this.getUrl();
+        if (!url) return;
+
+        try {
+            this.updateSyncBadge('syncing');
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // Web App doPost handles text payload
+                body: JSON.stringify({ action: 'saveTrip', trip: trip })
+            });
+
+            if (resp.ok) {
+                const resData = await resp.json();
+                console.log('[GoogleSheetsSync] Successfully posted trip response to Google Sheet:', resData);
+                this.updateSyncBadge('connected');
+                if (window.App) window.App.showNotification('✅ Response synced to Google Sheet!', 'success');
+            } else {
+                console.error('[GoogleSheetsSync] Failed to post trip to Google Sheet HTTP', resp.status);
+                this.updateSyncBadge('error');
+            }
+        } catch (err) {
+            console.error('[GoogleSheetsSync] Sync trip network error:', err);
+            this.updateSyncBadge('error');
+        }
+    },
+
+    pushAllLocalTrips: async function() {
+        const url = this.getUrl();
+        if (!url) {
+            if (window.App) window.App.showNotification('Please connect Google Sheets first.', 'error');
+            return;
+        }
+
+        const trips = TransportDB.getTrips();
+        if (!trips || trips.length === 0) {
+            if (window.App) window.App.showNotification('No local trips found to upload.', 'info');
+            return;
+        }
+
+        if (window.App) window.App.showNotification(`Uploading ${trips.length} local trips to Google Sheet...`, 'info');
+
+        try {
+            this.updateSyncBadge('syncing');
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'saveAllTrips', trips: trips })
+            });
+
+            if (resp.ok) {
+                this.updateSyncBadge('connected');
+                if (window.App) window.App.showNotification(`✅ Pushed ${trips.length} trips to Google Sheet!`, 'success');
+            } else {
+                this.updateSyncBadge('error');
+                if (window.App) window.App.showNotification('Failed to push trips to Google Sheet.', 'error');
+            }
+        } catch (err) {
+            console.error('[GoogleSheetsSync] Push error:', err);
+            this.updateSyncBadge('error');
+            if (window.App) window.App.showNotification(`Push failed: ${err.message}`, 'error');
+        }
+    }
+};
+
 window.TransportDB = TransportDB;
 window.FirebaseSync = FirebaseSync;
+window.GoogleSheetsSync = GoogleSheetsSync;
+
 TransportDB.init();
+GoogleSheetsSync.init();
+

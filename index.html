@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
@@ -73,6 +73,58 @@
         .tab-btn.tab-inactive:hover { color: #ffffff; }
         
         select option { background: #0f172a; color: #e2e8f0; }
+
+        /* ========== MOBILE OPTIMIZATION ========== */
+        /* Increase touch target for all interactive elements on mobile */
+        @media (max-width: 768px) {
+            select, input[type="text"], input[type="number"], input[type="tel"] {
+                min-height: 48px;
+                font-size: 16px !important; /* Prevents iOS zoom */
+                padding-top: 0.6rem;
+                padding-bottom: 0.6rem;
+            }
+            button[type="submit"], button[type="button"] {
+                min-height: 48px;
+            }
+            .tab-btn {
+                min-height: 40px;
+                font-size: 11px;
+                padding: 0.5rem 0.75rem;
+            }
+            /* Sticky action bar on driver terminal for mobile */
+            #tab-driver form#driverCheckinForm button[type="submit"] {
+                position: sticky;
+                bottom: 1rem;
+                z-index: 10;
+                box-shadow: 0 0 20px rgba(37,99,235,0.4);
+            }
+        }
+
+        /* GPS button pulsing indicator */
+        .gps-captured {
+            animation: gpsPulse 1s ease-in-out;
+        }
+        @keyframes gpsPulse {
+            0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+            70% { box-shadow: 0 0 0 10px rgba(52, 211, 153, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+        }
+
+        /* Region badge */
+        .region-filter-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 99px;
+            background: rgba(79, 70, 229, 0.15);
+            border: 1px solid rgba(99, 102, 241, 0.4);
+            color: #a5b4fc;
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
     </style>
 </head>
 <body class="min-h-screen flex flex-col font-sans antialiased text-slate-200">
@@ -96,7 +148,7 @@
 
             <!-- Tab Switcher & Role Switcher -->
             <div class="flex items-center gap-3">
-                <div id="cloudSyncStatusBadge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-[11px] font-semibold cursor-pointer" onclick="App.switchTab('fleet')">
+                <div id="cloudSyncStatusBadge" class="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-[11px] font-semibold cursor-pointer" onclick="App.openGoogleSheetsModal()" title="Click to configure Google Sheets Live Sync">
                     <span class="w-2 h-2 rounded-full bg-amber-400"></span> <span>Local Storage Mode</span>
                 </div>
 
@@ -260,6 +312,24 @@
                             </div>
                         </div>
 
+
+                        <!-- === REGION FILTER DROPDOWN (New!) === -->
+                        <div class="mb-1">
+                            <div class="flex items-center gap-2 mb-1.5">
+                                <i class="fa-solid fa-map-location-dot text-indigo-400 text-xs"></i>
+                                <label class="block font-semibold text-slate-300 text-xs">Filter by Region</label>
+                                <span class="region-filter-badge">Site Filter</span>
+                            </div>
+                            <select id="checkinRegionFilter" onchange="App.handleCheckinRegionChange(this.value)"
+                                class="w-full bg-indigo-950/40 border border-indigo-600/50 rounded-xl px-3.5 py-2.5 text-indigo-200 font-semibold text-xs focus:outline-none focus:border-indigo-400 transition">
+                                <option value="ALL">🌍 All Regions</option>
+                                <option value="Hyderabad">Hyderabad</option>
+                                <option value="Vijayawada">Vijayawada</option>
+                                <option value="Bangalore">Bangalore</option>
+                                <option value="GTS">GTS</option>
+                            </select>
+                            <p class="text-[10px] text-slate-500 mt-1">Select a region to filter departure &amp; arrival sites</p>
+                        </div>
 
                         <!-- Fuel Type Selector (Diesel vs Petrol vs CNG vs EV) -->
                         <div>
@@ -709,6 +779,18 @@
                             </div>
                         </div>
 
+                        <!-- GPS Location Capture (New!) -->
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1.5 text-xs">
+                                <i class="fa-solid fa-location-crosshairs text-emerald-400 mr-1"></i> GPS Location (Vehicle Tracking)
+                            </label>
+                            <button type="button" id="gpsCheckinBtn" onclick="App.captureGPS('checkin')"
+                                class="w-full py-2.5 px-4 bg-emerald-950/50 border border-emerald-600/50 hover:border-emerald-400 hover:bg-emerald-900/40 text-emerald-300 font-semibold text-xs rounded-xl transition flex items-center justify-center gap-2">
+                                <i class="fa-solid fa-location-crosshairs"></i> Capture GPS Location
+                            </button>
+                            <div id="gpsCheckinDisplay" class="hidden mt-2 p-2.5 bg-slate-950 border border-emerald-500/30 rounded-xl text-xs"></div>
+                        </div>
+
                         <!-- Trip Notes -->
                         <div>
                             <label class="block font-semibold text-slate-300 mb-1.5">Trip Cargo / Remarks (Optional)</label>
@@ -716,7 +798,7 @@
                         </div>
 
                         <button type="submit" class="w-full py-3.5 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-bold text-sm rounded-xl shadow-lg shadow-blue-900/40 transition flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-play"></i> Start Trip & Check In
+                            <i class="fa-solid fa-play"></i> Start Trip &amp; Check In
                         </button>
                     </form>
                 </div>
@@ -1643,6 +1725,17 @@
                     </div>
 
                     <form id="fuelRatesForm" onsubmit="event.preventDefault(); App.handleSaveFuelRates();" class="space-y-3 text-xs">
+                        <!-- Region Selector for fuel rates -->
+                        <div>
+                            <label class="block font-semibold text-slate-300 mb-1">
+                                <i class="fa-solid fa-map-location-dot text-indigo-400 mr-1"></i> Set Rates for Region
+                            </label>
+                            <select id="fuelRatesRegionSelect" onchange="App.renderFuelRatesForm()"
+                                class="w-full bg-indigo-950/40 border border-indigo-600/50 rounded-xl px-3 py-2 text-indigo-200 font-semibold text-xs focus:outline-none focus:border-indigo-400 transition">
+                                <option value="ALL">🌍 Default (All Regions)</option>
+                            </select>
+                            <p class="text-[10px] text-slate-500 mt-1">Select a region to set region-specific fuel prices, or keep "Default" for global rates.</p>
+                        </div>
                         <div>
                             <label class="block font-semibold text-slate-300 mb-1">Diesel Rate (&#8377;/Litre)</label>
                             <input type="number" step="0.01" id="rateDiesel" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono focus:outline-none focus:border-emerald-500">
@@ -1830,6 +1923,24 @@
 
             <!-- Check-Out Form -->
             <form id="checkoutForm" onsubmit="event.preventDefault(); App.handleDriverCheckOut();" class="space-y-3.5 text-xs">
+
+                <!-- === REGION FILTER (Checkout) === -->
+                <div>
+                    <div class="flex items-center gap-2 mb-1.5">
+                        <i class="fa-solid fa-map-location-dot text-indigo-400 text-xs"></i>
+                        <label class="block font-semibold text-slate-300 text-xs">Filter Arrival Sites by Region</label>
+                        <span class="region-filter-badge">Site Filter</span>
+                    </div>
+                    <select id="checkoutRegionFilter" onchange="App.handleCheckoutRegionChange(this.value)"
+                        class="w-full bg-indigo-950/40 border border-indigo-600/50 rounded-xl px-3.5 py-2.5 text-indigo-200 font-semibold text-xs focus:outline-none focus:border-indigo-400 transition">
+                        <option value="ALL">🌍 All Regions</option>
+                        <option value="Hyderabad">Hyderabad</option>
+                        <option value="Vijayawada">Vijayawada</option>
+                        <option value="Bangalore">Bangalore</option>
+                        <option value="GTS">GTS</option>
+                    </select>
+                </div>
+
                 <div>
                     <div class="flex items-center justify-between mb-1.5">
                         <label class="block font-semibold text-slate-300">Destination / Arrival Site <span class="text-rose-400">*</span></label>
@@ -2245,6 +2356,18 @@
 
                 <div id="checkoutAnomalyWarning" class="hidden bg-amber-950/40 border border-amber-800/60 p-2.5 rounded-xl text-amber-300 text-[11px]"></div>
 
+                <!-- GPS Location Capture at Destination (New!) -->
+                <div>
+                    <label class="block font-semibold text-slate-300 mb-1.5 text-xs">
+                        <i class="fa-solid fa-location-crosshairs text-emerald-400 mr-1"></i> GPS Location at Destination (Optional)
+                    </label>
+                    <button type="button" id="gpsCheckoutBtn" onclick="App.captureGPS('checkout')"
+                        class="w-full py-2.5 px-4 bg-emerald-950/50 border border-emerald-600/50 hover:border-emerald-400 hover:bg-emerald-900/40 text-emerald-300 font-semibold text-xs rounded-xl transition flex items-center justify-center gap-2">
+                        <i class="fa-solid fa-location-crosshairs"></i> Capture GPS Location
+                    </button>
+                    <div id="gpsCheckoutDisplay" class="hidden mt-2 p-2.5 bg-slate-950 border border-emerald-500/30 rounded-xl text-xs"></div>
+                </div>
+
                 <!-- Trip Notes -->
                 <div>
                     <label class="block font-semibold text-slate-300 mb-1.5">Trip Notes / Remarks (Optional)</label>
@@ -2290,6 +2413,38 @@
                     </button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- MODAL: LIVE GPS LOCATION TRACKER -->
+    <!-- ============================================================= -->
+    <div id="gpsViewModal" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm hidden flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-emerald-500/40 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-location-dot"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white text-base">📍 Live Vehicle GPS Tracker</h3>
+                        <p id="gpsModalSubtitle" class="text-xs text-slate-400">GPS location details & Google Maps coordinates</p>
+                    </div>
+                </div>
+                <button type="button" onclick="App.closeGPSModal()" class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center transition">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div id="gpsModalContent" class="space-y-3">
+                <!-- Dynamically populated -->
+            </div>
+
+            <div class="pt-2 border-t border-slate-800">
+                <button type="button" onclick="App.closeGPSModal()" class="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs rounded-xl transition">
+                    Close GPS Tracker
+                </button>
+            </div>
         </div>
     </div>
 
@@ -7360,16 +7515,7 @@ const FirebaseSync = {
     },
 
     updateSyncBadge: function(isConnected) {
-        const badge = document.getElementById('cloudSyncStatusBadge');
-        if (badge) {
-            if (isConnected) {
-                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> <span>Cloud Synced (Live)</span>';
-                badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-[11px] font-semibold";
-            } else {
-                badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> <span>Local Storage Mode</span>';
-                badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-[11px] font-semibold";
-            }
-        }
+        // Disabled to prevent overwriting Google Sheets sync badge
     },
 
     startTripsListener: function() {
@@ -7476,9 +7622,217 @@ const FirebaseSync = {
     }
 };
 
+const GoogleSheetsSync = {
+    KEY_URL: 'tct_google_sheets_url',
+    isSyncing: false,
+    autoSyncTimer: null,
+
+    DEFAULT_URL: 'https://script.google.com/macros/s/AKfycbykhURjf3d1r2hpeB_Zei43O9xPWxEqElqmEM5H0Z9OnRuuxofzeJ6gN6BaCnE6Ds0_/exec',
+
+    getUrl: function() {
+        try {
+            const saved = (localStorage.getItem(this.KEY_URL) || '').trim();
+            if (saved) return saved;
+        } catch (e) {}
+        return this.DEFAULT_URL;
+    },
+
+    setUrl: function(url) {
+        const clean = String(url || '').trim();
+        try {
+            localStorage.setItem(this.KEY_URL, clean);
+        } catch (e) {}
+        this.updateSyncBadge(clean !== '' ? 'connected' : 'local');
+        if (clean !== '') {
+            this.syncAll();
+        }
+    },
+
+    init: function() {
+        const url = this.getUrl();
+        if (url) {
+            this.updateSyncBadge('connected');
+            this.syncAll();
+            this.startAutoSync();
+        } else {
+            this.updateSyncBadge('local');
+        }
+    },
+
+    updateSyncBadge: function(state, customText) {
+        const badge = document.getElementById('cloudSyncStatusBadge');
+        if (!badge) return;
+
+        badge.onclick = function() {
+            if (window.App && typeof window.App.openGoogleSheetsModal === 'function') {
+                window.App.openGoogleSheetsModal();
+            }
+        };
+
+        if (state === 'connected') {
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> <span>Google Sheets Synced</span>';
+            badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-950/60 border border-emerald-800/60 text-emerald-300 text-[11px] font-semibold cursor-pointer hover:border-emerald-500 transition";
+        } else if (state === 'syncing') {
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-blue-400 animate-spin"></span> <span>Syncing...</span>';
+            badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-blue-950/60 border border-blue-800/60 text-blue-300 text-[11px] font-semibold cursor-pointer hover:border-blue-500 transition";
+        } else if (state === 'error') {
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-400"></span> <span>Sheet Sync Error</span>';
+            badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-950/60 border border-rose-800/60 text-rose-300 text-[11px] font-semibold cursor-pointer hover:border-rose-500 transition";
+        } else {
+            badge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-400"></span> <span>Local Storage Mode</span>';
+            badge.className = "flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 text-[11px] font-semibold cursor-pointer hover:border-slate-700 transition";
+        }
+    },
+
+    startAutoSync: function() {
+        if (this.autoSyncTimer) clearInterval(this.autoSyncTimer);
+        this.autoSyncTimer = setInterval(() => {
+            if (this.getUrl()) {
+                this.syncAll(true);
+            }
+        }, 30000);
+    },
+
+    testConnection: async function(targetUrl) {
+        const url = (targetUrl || this.getUrl()).trim();
+        if (!url) {
+            return { success: false, error: 'Web App URL is empty.' };
+        }
+
+        try {
+            const resp = await fetch(url + '?action=ping', { method: 'GET' });
+            if (!resp.ok) {
+                return { success: false, error: `HTTP ${resp.status}: ${resp.statusText}` };
+            }
+            const data = await resp.json();
+            if (data && data.status === 'success') {
+                return { success: true, message: data.message || 'Connection successful!' };
+            } else {
+                return { success: false, error: data.message || 'Invalid API response format.' };
+            }
+        } catch (err) {
+            console.error('[GoogleSheetsSync] Test connection error:', err);
+            return { success: false, error: 'Network error or CORS issue. Ensure script is deployed as Web App to "Anyone".' };
+        }
+    },
+
+    syncAll: async function(silent = false) {
+        const url = this.getUrl();
+        if (!url || this.isSyncing) return;
+
+        this.isSyncing = true;
+        if (!silent) this.updateSyncBadge('syncing');
+
+        try {
+            const sitesResp = await fetch(url + '?action=getSites', { method: 'GET' });
+            if (sitesResp.ok) {
+                const sitesData = await sitesResp.json();
+                if (sitesData && sitesData.sites && sitesData.sites.length > 0) {
+                    TransportDB.saveSites(sitesData.sites);
+                }
+            }
+
+            const tripsResp = await fetch(url + '?action=getTrips', { method: 'GET' });
+            if (tripsResp.ok) {
+                const tripsData = await tripsResp.json();
+                if (tripsData && tripsData.trips && tripsData.trips.length > 0) {
+                    const localTrips = TransportDB.getTrips();
+                    const mergedMap = new Map();
+                    localTrips.forEach(t => mergedMap.set(t.id, t));
+                    tripsData.trips.forEach(t => mergedMap.set(t.id, t));
+
+                    const combined = Array.from(mergedMap.values());
+                    combined.sort((a, b) => new Date(b.checkInTime || 0) - new Date(a.checkInTime || 0));
+                    
+                    _memStore.trips = combined;
+                    try {
+                        localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(combined));
+                    } catch (e) {}
+                }
+            }
+
+            this.updateSyncBadge('connected');
+            if (window.App && typeof window.App.refreshAll === 'function') {
+                window.App.refreshAll();
+            }
+        } catch (err) {
+            console.error('[GoogleSheetsSync] Sync error:', err);
+            this.updateSyncBadge('error');
+        } finally {
+            this.isSyncing = false;
+        }
+    },
+
+    syncTrip: async function(trip) {
+        if (!trip || !trip.id) return;
+        const url = this.getUrl();
+        if (!url) return;
+
+        try {
+            this.updateSyncBadge('syncing');
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'saveTrip', trip: trip })
+            });
+
+            if (resp.ok) {
+                const resData = await resp.json();
+                this.updateSyncBadge('connected');
+                if (window.App) window.App.showNotification('✅ Response synced to Google Sheet!', 'success');
+            } else {
+                this.updateSyncBadge('error');
+            }
+        } catch (err) {
+            console.error('[GoogleSheetsSync] Sync trip error:', err);
+            this.updateSyncBadge('error');
+        }
+    },
+
+    pushAllLocalTrips: async function() {
+        const url = this.getUrl();
+        if (!url) {
+            if (window.App) window.App.showNotification('Please connect Google Sheets first.', 'error');
+            return;
+        }
+
+        const trips = TransportDB.getTrips();
+        if (!trips || trips.length === 0) {
+            if (window.App) window.App.showNotification('No local trips found to upload.', 'info');
+            return;
+        }
+
+        if (window.App) window.App.showNotification(`Uploading ${trips.length} local trips to Google Sheet...`, 'info');
+
+        try {
+            this.updateSyncBadge('syncing');
+            const resp = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({ action: 'saveAllTrips', trips: trips })
+            });
+
+            if (resp.ok) {
+                this.updateSyncBadge('connected');
+                if (window.App) window.App.showNotification(`✅ Pushed ${trips.length} trips to Google Sheet!`, 'success');
+            } else {
+                this.updateSyncBadge('error');
+                if (window.App) window.App.showNotification('Failed to push trips to Google Sheet.', 'error');
+            }
+        } catch (err) {
+            console.error('[GoogleSheetsSync] Push error:', err);
+            this.updateSyncBadge('error');
+            if (window.App) window.App.showNotification(`Push failed: ${err.message}`, 'error');
+        }
+    }
+};
+
 window.TransportDB = TransportDB;
 window.FirebaseSync = FirebaseSync;
+window.GoogleSheetsSync = GoogleSheetsSync;
+
 TransportDB.init();
+GoogleSheetsSync.init();
 
     </script>
 
@@ -8645,27 +8999,27 @@ const App = {
             vehSelect.innerHTML = options;
         }
 
-        // 3. Origin Sites Dropdown (314 Sites)
+        // 3. Origin Sites Dropdown
         const originSelect = document.getElementById('checkinOriginSelect');
-        if (originSelect && originSelect.options.length <= 1) {
-            originSelect.innerHTML = '<option value="">-- Search / Select Departure Site (314 Sites Available) --</option>' +
+        if (originSelect) {
+            originSelect.innerHTML = `<option value="">-- Search / Select Departure Site (${sites.length} Sites Available) --</option>` +
                 sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
         }
 
-        // 4. Destination Sites Dropdown (314 Sites)
+        // 4. Destination Sites Dropdown
         const destSelect = document.getElementById('checkoutDestSelect');
-        if (destSelect && destSelect.options.length <= 1) {
-            destSelect.innerHTML = '<option value="">-- Search / Select Arrival Site --</option>' +
+        if (destSelect) {
+            destSelect.innerHTML = `<option value="">-- Search / Select Arrival Site (${sites.length} Sites Available) --</option>` +
                 sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
         }
 
         // 5. Filter Dropdowns
         const fOrigin = document.getElementById('filterOrigin');
         const fDest = document.getElementById('filterDest');
-        if (fOrigin && fOrigin.options.length <= 1) {
+        if (fOrigin) {
             fOrigin.innerHTML = '<option value="ALL">All Origin Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
         }
-        if (fDest && fDest.options.length <= 1) {
+        if (fDest) {
             fDest.innerHTML = '<option value="ALL">All Destination Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
         }
     },
@@ -10169,6 +10523,94 @@ const App = {
         FirebaseSync.updateSyncBadge(FirebaseSync.isInitialized);
     },
 
+    // --- GOOGLE SHEETS SYNC HANDLERS ---
+    openGoogleSheetsModal: function() {
+        const modal = document.getElementById('googleSheetsSyncModal');
+        if (modal) {
+            this.renderGoogleSheetsConfigForm();
+            modal.classList.remove('hidden');
+            modal.style.display = 'flex';
+        } else {
+            console.error('googleSheetsSyncModal not found in DOM');
+        }
+    },
+
+    closeGoogleSheetsModal: function() {
+        const modal = document.getElementById('googleSheetsSyncModal');
+        if (modal) {
+            modal.classList.add('hidden');
+            modal.style.display = 'none';
+        }
+    },
+
+    renderGoogleSheetsConfigForm: function() {
+        const input = document.getElementById('googleSheetsWebAppUrlInput');
+        const statusLabel = document.getElementById('googleSheetsSyncStatusLabel');
+        const currentUrl = window.GoogleSheetsSync ? window.GoogleSheetsSync.getUrl() : '';
+
+        if (input) input.value = currentUrl;
+        if (statusLabel) {
+            if (currentUrl) {
+                statusLabel.innerHTML = '<span class="text-emerald-400 font-bold">🟢 Connected to Google Sheets</span>';
+            } else {
+                statusLabel.innerHTML = '<span class="text-slate-500 font-bold">⚪ Local Storage Mode</span>';
+            }
+        }
+    },
+
+    handleSaveGoogleSheetsUrl: async function() {
+        const input = document.getElementById('googleSheetsWebAppUrlInput');
+        const url = input ? input.value.trim() : '';
+
+        if (!url) {
+            if (confirm("Clear Web App URL and revert to Local Storage mode?")) {
+                if (window.GoogleSheetsSync) window.GoogleSheetsSync.setUrl('');
+                this.renderGoogleSheetsConfigForm();
+                this.showNotification('Google Sheets disconnected. App is now in Local Storage mode.', 'info');
+                this.closeGoogleSheetsModal();
+            }
+            return;
+        }
+
+        this.showNotification('Testing Google Sheets Web App Connection...', 'info');
+        const testRes = await window.GoogleSheetsSync.testConnection(url);
+
+        if (testRes.success) {
+            window.GoogleSheetsSync.setUrl(url);
+            this.renderGoogleSheetsConfigForm();
+            this.showNotification('🟢 Connected to Google Sheets! Master Sites & Responses will now sync live.', 'success');
+            this.closeGoogleSheetsModal();
+        } else {
+            this.showNotification(`⚠️ Connection Test Failed: ${testRes.error}`, 'error');
+        }
+    },
+
+    handleTestGoogleSheetsConnection: async function() {
+        const input = document.getElementById('googleSheetsWebAppUrlInput');
+        const url = input ? input.value.trim() : '';
+
+        if (!url) {
+            this.showNotification('Please enter a Google Apps Script Web App URL first.', 'error');
+            return;
+        }
+
+        this.showNotification('Testing connection to Google Sheet API...', 'info');
+        const res = await window.GoogleSheetsSync.testConnection(url);
+
+        if (res.success) {
+            this.showNotification(`✅ Connection Successful! ${res.message}`, 'success');
+        } else {
+            this.showNotification(`❌ Test Failed: ${res.error}`, 'error');
+        }
+    },
+
+    handleSyncGoogleSheetsNow: function() {
+        if (window.GoogleSheetsSync) {
+            this.showNotification('Syncing Master Sites & Responses with Google Sheet...', 'info');
+            window.GoogleSheetsSync.syncAll();
+        }
+    },
+
     startTimer: function() {
         setInterval(() => {
             if (this.currentTab === 'driver') {
@@ -10229,10 +10671,105 @@ window.App = App;
         if (document.readyState === 'loading') {
             document.addEventListener('DOMContentLoaded', runMasterBoot);
         } else {
+
+    </script>
+
+    <!-- Failsafe Master Bootloader -->
+    <script>
+    (function() {
+        function runMasterBoot() {
+            try {
+                if (window.TransportDB && typeof window.TransportDB.init === 'function') {
+                    window.TransportDB.init();
+                }
+                if (window.App && typeof window.App.init === 'function') {
+                    window.App.init();
+                    console.log('[FleetCost] App initialized successfully with ' + (window.EMBEDDED_SITES ? window.EMBEDDED_SITES.length : 0) + ' sites.');
+                }
+            } catch (e) {
+                console.error('[FleetCost] Boot Error:', e);
+            }
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', runMasterBoot);
+        } else {
             runMasterBoot();
         }
         window.addEventListener('load', runMasterBoot);
     })();
     </script>
+    <!-- Google Sheets Sync Configuration Modal -->
+    <div id="googleSheetsSyncModal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+        <div class="bg-slate-900 border border-slate-800 rounded-3xl max-w-2xl w-full p-6 space-y-5 shadow-2xl overflow-y-auto max-h-[90vh]">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center justify-center text-lg">
+                        <i class="fa-solid fa-file-excel"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-white text-base">Google Sheets Live Sync Config</h3>
+                        <p class="text-xs text-slate-400">Sync Master Sites (`sites info`) & App Trip Responses in real-time</p>
+                    </div>
+                </div>
+                <button onclick="App.closeGoogleSheetsModal()" class="text-slate-400 hover:text-white transition">
+                    <i class="fa-solid fa-xmark text-lg"></i>
+                </button>
+            </div>
+
+            <div class="bg-slate-950/60 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                <span class="text-xs text-slate-400 font-semibold">Current Connection Status:</span>
+                <div id="googleSheetsSyncStatusLabel" class="text-xs">
+                    <span class="text-slate-500 font-bold">⚪ Local Storage Mode</span>
+                </div>
+            </div>
+
+            <div class="space-y-2">
+                <label class="block text-xs font-bold text-slate-300">Google Apps Script Web App Deployment URL</label>
+                <input type="url" id="googleSheetsWebAppUrlInput" placeholder="https://script.google.com/macros/s/.../exec" class="w-full px-4 py-3 rounded-xl bg-slate-950 border border-slate-800 text-white font-mono text-xs focus:border-emerald-500 focus:outline-none"/>
+                <p class="text-[11px] text-slate-400">Paste your deployed Apps Script Web App URL to load master sites and post trip responses live across all devices.</p>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="App.handleTestGoogleSheetsConnection()" class="px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-semibold text-slate-200 hover:bg-slate-700 transition flex items-center gap-2">
+                        <i class="fa-solid fa-plug text-emerald-400"></i> Test Connection
+                    </button>
+                    <button type="button" onclick="App.handleSyncGoogleSheetsNow()" class="px-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs font-semibold text-blue-400 hover:bg-slate-700 transition flex items-center gap-2">
+                        <i class="fa-solid fa-rotate text-blue-400"></i> Sync Now
+                    </button>
+                    <button type="button" onclick="window.GoogleSheetsSync && window.GoogleSheetsSync.pushAllLocalTrips()" class="px-4 py-2.5 rounded-xl bg-slate-800 border border-amber-500/40 text-xs font-semibold text-amber-300 hover:bg-slate-700 transition flex items-center gap-2" title="Upload all existing local trips to Google Sheet">
+                        <i class="fa-solid fa-cloud-arrow-up text-amber-400"></i> Push Local Trips
+                    </button>
+                </div>
+
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="App.closeGoogleSheetsModal()" class="px-4 py-2.5 rounded-xl bg-slate-800 text-xs font-semibold text-slate-400 hover:text-white transition">
+                        Cancel
+                    </button>
+                    <button type="button" onclick="App.handleSaveGoogleSheetsUrl()" class="px-5 py-2.5 rounded-xl bg-emerald-600 text-xs font-bold text-white hover:bg-emerald-500 transition flex items-center gap-2 shadow-lg shadow-emerald-900/30">
+                        <i class="fa-solid fa-check"></i> Save & Connect
+                    </button>
+                </div>
+            </div>
+
+            <!-- Helper Setup Instructions -->
+            <div class="mt-4 pt-4 border-t border-slate-800/80 space-y-2">
+                <h4 class="font-bold text-slate-300 text-xs flex items-center gap-1.5">
+                    <i class="fa-solid fa-circle-info text-blue-400"></i> How to Get Your Web App URL (1-Minute Setup):
+                </h4>
+                <ol class="list-decimal list-inside text-[11px] text-slate-400 space-y-1.5 leading-relaxed bg-slate-950/80 p-3.5 rounded-2xl border border-slate-800/80">
+                    <li>Create a <strong>New Google Sheet</strong> for Web App Responses (e.g. <em>FleetCost Web App Data</em>).</li>
+                    <li>Go to <strong>Extensions &rarr; Apps Script</strong>.</li>
+                    <li>Copy code from <code class="text-blue-400 font-mono">google_apps_script.js</code> (in your project folder) and paste it into Apps Script.</li>
+                    <li>Paste your Master Sheet ID into line 17 (<code class="text-emerald-400 font-mono">MASTER_SITES_SHEET_ID = "..."</code>).</li>
+                    <li>Click <strong>Deploy &rarr; New deployment</strong>, select <strong>Web app</strong> (Execute as: <em>Me</em>, Who has access: <em>Anyone</em>).</li>
+                    <li>Copy the generated <strong>Web App URL</strong> and paste it above!</li>
+                </ol>
+            </div>
+        </div>
+    </div>
+
 </body>
 </html>
