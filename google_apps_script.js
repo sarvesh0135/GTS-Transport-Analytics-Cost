@@ -196,12 +196,12 @@ function saveOrUpdateTripResponse(trip) {
   let sheet = ss.getSheetByName(RESPONSES_TAB_NAME);
 
   const defaultHeaders = [
-    "Trip ID", "Status", "Region", "Driver Name", "Vehicle Plate", "Fuel Type",
+    "Trip ID", "Status", "Region", "Driver Name", "Driver Phone", "Vehicle Plate", "Fuel Type",
     "Origin Code", "Origin Name", "Destination Code", "Destination Name",
-    "Start Odometer", "End Odometer", "Distance (km)", "Fuel Cost (INR)",
+    "Start Odometer", "End Odometer", "Distance (km)", "Fuel Consumed (Litre)", "Fuel Cost (INR)",
     "Toll Charges (INR)", "Total Cost (INR)", "Cost Per Km (INR)",
     "Check-In Time", "Check-Out Time", "Start GPS Location", "End GPS Location",
-    "Supervisor (Horticulturist)", "Assistant Manager", "Manager", "Created At"
+    "Supervisor (Horticulturist)", "Assistant Manager", "Manager", "Verified By", "Edited By", "Created At"
   ];
 
   if (!sheet) {
@@ -242,12 +242,14 @@ function saveOrUpdateTripResponse(trip) {
 
   const dist = trip.distance !== undefined ? trip.distance : (trip.distanceKm !== undefined ? trip.distanceKm : 0);
   const tolls = trip.tollsAndMisc !== undefined ? trip.tollsAndMisc : (trip.tollCharges || 0);
+  const fuelConsumed = trip.fuelConsumed !== undefined && trip.fuelConsumed !== null && !isNaN(Number(trip.fuelConsumed)) && Number(trip.fuelConsumed) > 0 ? Number(trip.fuelConsumed) : (dist > 0 ? Number((dist / 10).toFixed(2)) : 0);
 
   const valMap = {
     id: trip.id || "",
     status: trip.status || "IN_TRANSIT",
     region: trip.region || trip.originRegion || "GTS",
     driverName: trip.driverName || "",
+    driverPhone: trip.driverPhone || "",
     vehiclePlate: trip.vehiclePlate || "",
     fuelType: trip.fuelType || "",
     originCode: originCode,
@@ -257,6 +259,7 @@ function saveOrUpdateTripResponse(trip) {
     startOdo: trip.startOdo !== undefined && trip.startOdo !== null ? trip.startOdo : "",
     endOdo: trip.endOdo !== undefined && trip.endOdo !== null ? trip.endOdo : "",
     distance: dist,
+    fuelConsumed: fuelConsumed,
     fuelCost: trip.fuelCost !== undefined ? trip.fuelCost : "",
     tolls: tolls,
     totalCost: trip.totalCost !== undefined ? trip.totalCost : "",
@@ -268,6 +271,8 @@ function saveOrUpdateTripResponse(trip) {
     supervisor: trip.originSupervisor || trip.supervisor || "",
     asstManager: trip.originAsstManager || trip.asstManager || "",
     manager: trip.originManager || trip.manager || "",
+    verifiedBy: trip.isVerified ? (trip.verifiedBy || "Verified") : "",
+    editedBy: trip.isEdited ? (trip.editedBy || "Edited") : "",
     createdAt: new Date().toISOString()
   };
 
@@ -276,6 +281,7 @@ function saveOrUpdateTripResponse(trip) {
     status: getColIndex(["status"]),
     region: getColIndex(["region", "zone"]),
     driverName: getColIndex(["driver name", "driver"]),
+    driverPhone: getColIndex(["driver phone", "driver mobile", "phone", "mobile"]),
     vehiclePlate: getColIndex(["vehicle plate", "vehicle", "plate"]),
     fuelType: getColIndex(["fuel type", "fuel"]),
     originCode: getColIndex(["origin code", "origin site code", "departure code"]),
@@ -285,6 +291,7 @@ function saveOrUpdateTripResponse(trip) {
     startOdo: getColIndex(["start odometer", "start odo"]),
     endOdo: getColIndex(["end odometer", "end odo"]),
     distance: getColIndex(["distance (km)", "distance"]),
+    fuelConsumed: getColIndex(["fuel consumed (litre)", "fuel consumed", "fuel used", "litre"]),
     fuelCost: getColIndex(["fuel cost (inr)", "fuel cost"]),
     tolls: getColIndex(["toll charges (inr)", "toll charges", "tolls"]),
     totalCost: getColIndex(["total cost (inr)", "total cost"]),
@@ -296,6 +303,8 @@ function saveOrUpdateTripResponse(trip) {
     supervisor: getColIndex(["supervisor (horticulturist)", "supervisor"]),
     asstManager: getColIndex(["assistant manager", "asst manager"]),
     manager: getColIndex(["manager"]),
+    verifiedBy: getColIndex(["verified by", "verified"]),
+    editedBy: getColIndex(["edited by", "edited"]),
     createdAt: getColIndex(["created at"])
   };
 
@@ -360,6 +369,7 @@ function fetchTripResponses() {
     status: getColIndex(["status"]),
     region: getColIndex(["region", "zone"]),
     driverName: getColIndex(["driver name", "driver"]),
+    driverPhone: getColIndex(["driver phone", "driver mobile", "phone", "mobile"]),
     vehiclePlate: getColIndex(["vehicle plate", "vehicle", "plate"]),
     fuelType: getColIndex(["fuel type", "fuel"]),
     originCode: getColIndex(["origin code", "origin site code", "departure code"]),
@@ -369,6 +379,7 @@ function fetchTripResponses() {
     startOdo: getColIndex(["start odometer", "start odo"]),
     endOdo: getColIndex(["end odometer", "end odo"]),
     distance: getColIndex(["distance (km)", "distance"]),
+    fuelConsumed: getColIndex(["fuel consumed (litre)", "fuel consumed", "fuel used", "litre"]),
     fuelCost: getColIndex(["fuel cost (inr)", "fuel cost"]),
     tolls: getColIndex(["toll charges (inr)", "toll charges", "tolls"]),
     totalCost: getColIndex(["total cost (inr)", "total cost"]),
@@ -379,7 +390,9 @@ function fetchTripResponses() {
     endGps: getColIndex(["end gps location", "end location"]),
     supervisor: getColIndex(["supervisor (horticulturist)", "supervisor"]),
     asstManager: getColIndex(["assistant manager", "asst manager"]),
-    manager: getColIndex(["manager"])
+    manager: getColIndex(["manager"]),
+    verifiedBy: getColIndex(["verified by", "verified"]),
+    editedBy: getColIndex(["edited by", "edited"])
   };
 
   function getVal(row, colIdx, defaultVal) {
@@ -412,11 +425,17 @@ function fetchTripResponses() {
     if (destCode === "Diesel" || destCode === "Petrol" || destCode === "CNG" || destCode === "EV") destCode = "";
     if (destName === "Diesel" || destName === "Petrol" || destName === "CNG" || destName === "EV") destName = "";
 
+    const rawFuelConsumed = Number(getVal(row, cols.fuelConsumed, 0));
+    const fuelConsumed = rawFuelConsumed > 0 ? rawFuelConsumed : (dist > 0 ? Number((dist / 10).toFixed(1)) : 0);
+    const verifiedByVal = String(getVal(row, cols.verifiedBy, "")).trim();
+    const editedByVal = String(getVal(row, cols.editedBy, "")).trim();
+
     trips.push({
       id: String(tripId),
       status: String(getVal(row, cols.status, "COMPLETED")),
       region: String(getVal(row, cols.region, "GTS")),
       driverName: String(getVal(row, cols.driverName, "Driver")),
+      driverPhone: String(getVal(row, cols.driverPhone, "")),
       vehiclePlate: String(getVal(row, cols.vehiclePlate, "TS07UF6428")),
       fuelType: String(getVal(row, cols.fuelType, "Diesel")),
       originSiteCode: originCode,
@@ -431,6 +450,7 @@ function fetchTripResponses() {
       endOdo: endOdo,
       distance: dist,
       distanceKm: dist,
+      fuelConsumed: fuelConsumed,
       fuelCost: Number(getVal(row, cols.fuelCost, 0)) || 0,
       tollsAndMisc: Number(getVal(row, cols.tolls, 0)) || 0,
       tollCharges: Number(getVal(row, cols.tolls, 0)) || 0,
@@ -445,6 +465,10 @@ function fetchTripResponses() {
       originAsstManager: String(getVal(row, cols.asstManager, "N/A")),
       asstManager: String(getVal(row, cols.asstManager, "N/A")),
       manager: String(getVal(row, cols.manager, "N/A")),
+      isVerified: verifiedByVal !== "" && verifiedByVal !== "N/A",
+      verifiedBy: verifiedByVal !== "N/A" ? verifiedByVal : "",
+      isEdited: editedByVal !== "" && editedByVal !== "N/A",
+      editedBy: editedByVal !== "N/A" ? editedByVal : "",
       fuelRate: 92.50,
       fuelUnit: 'Litre',
       mileage: 10

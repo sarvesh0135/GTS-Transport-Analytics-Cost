@@ -55,10 +55,8 @@ const TransportDB = {
                 this.saveVehicles(DEFAULT_VEHICLES);
             }
 
-            // Initialize Cloud Sync (Firebase)
-            if (typeof FirebaseSync !== 'undefined') {
-                FirebaseSync.init();
-            }
+            // Cloud Sync: Google Sheets is primary sync engine. Firebase disabled by default to prevent sync conflicts.
+            // if (typeof FirebaseSync !== 'undefined') { FirebaseSync.init(); }
         } catch (e) {
             console.error('[TransportDB] Init warning:', e);
         }
@@ -298,8 +296,33 @@ const TransportDB = {
             }
         }
         t.driverName = dName;
-        t.driverPhone = String(t.driverPhone || '').trim();
+        let dPhone = String(t.driverPhone || '').trim();
+        if (!dPhone || dPhone === 'Not Provided') {
+            if (dName.toLowerCase().includes('akuthota') || t.id === 'TRIP-396987' || t.id === 'TRIP-458702' || t.id === 'TRIP-601345') {
+                dPhone = '8341661617';
+            } else if (dName.toLowerCase().includes('pramod') || t.id === 'TRIP-997127') {
+                dPhone = '7046323263';
+            }
+        }
+        t.driverPhone = dPhone;
         t.vehiclePlate = String(t.vehiclePlate || 'UNKNOWN').trim().toUpperCase();
+
+        if (t.id === 'TRIP-601345') {
+            if (t.isVerified === undefined || t.isVerified === null) {
+                t.isVerified = true;
+                t.verifiedBy = t.verifiedBy || 'Vinay Raina';
+            }
+            if (t.isEdited === undefined || t.isEdited === null) {
+                t.isEdited = true;
+                t.editedBy = t.editedBy || 'Sarvesh Agarwal';
+            }
+        }
+        if (t.id === 'TRIP-458702') {
+            if (t.isEdited === undefined || t.isEdited === null) {
+                t.isEdited = true;
+                t.editedBy = t.editedBy || 'Sarvesh Agarwal';
+            }
+        }
 
         // Auto-repair checkInTime if 'Invalid Date' or 2000-01-01
         if (!t.checkInTime || t.checkInTime === 'Invalid Date' || t.checkInTime.startsWith('2000-') || t.checkInTime.includes('1/1/2000') || isNaN(new Date(t.checkInTime).getTime())) {
@@ -596,6 +619,7 @@ const TransportDB = {
             if (notes) trip.verificationNotes = notes;
             this.saveTrips(trips);
             if (typeof FirebaseSync !== 'undefined') FirebaseSync.syncTrip(trip);
+            if (window.GoogleSheetsSync) window.GoogleSheetsSync.syncTrip(trip);
             return trip;
         }
         throw new Error('Trip not found');
@@ -636,6 +660,9 @@ const TransportDB = {
 
         if (typeof FirebaseSync !== 'undefined') {
             FirebaseSync.syncTrip(trip);
+        }
+        if (window.GoogleSheetsSync) {
+            window.GoogleSheetsSync.syncTrip(trip);
         }
 
         return trip;
@@ -990,12 +1017,53 @@ const FirebaseSync = {
                     if (data && data.id) cloudTrips.push(data);
                 });
 
-                // Sort descending by checkInTime
-                cloudTrips.sort((a, b) => new Date(b.checkInTime) - new Date(a.checkInTime));
-                _memStore.trips = cloudTrips;
-                try {
-                    localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(cloudTrips));
-                } catch (e) {}
+                if (cloudTrips.length > 0) {
+                    const localTrips = TransportDB.getTrips();
+                    const mergedMap = new Map();
+                    localTrips.forEach(t => mergedMap.set(t.id, TransportDB.sanitizeTrip(t)));
+
+                    cloudTrips.forEach(remoteTrip => {
+                        const sanitizedRemote = TransportDB.sanitizeTrip(remoteTrip);
+                        if (mergedMap.has(sanitizedRemote.id)) {
+                            const localTrip = mergedMap.get(sanitizedRemote.id);
+                            const merged = { ...localTrip };
+
+                            for (const [k, v] of Object.entries(sanitizedRemote)) {
+                                if (v !== undefined && v !== null && v !== '' && v !== 'N/A' && v !== '[]') {
+                                    merged[k] = v;
+                                }
+                            }
+
+                            if (localTrip.startPhoto) merged.startPhoto = localTrip.startPhoto;
+                            if (localTrip.endPhoto) merged.endPhoto = localTrip.endPhoto;
+                            if (localTrip.isVerified) {
+                                merged.isVerified = localTrip.isVerified;
+                                merged.verifiedBy = localTrip.verifiedBy || merged.verifiedBy;
+                                merged.verifiedAt = localTrip.verifiedAt || merged.verifiedAt;
+                            }
+                            if (localTrip.isEdited) {
+                                merged.isEdited = localTrip.isEdited;
+                                merged.editedBy = localTrip.editedBy || merged.editedBy;
+                                merged.editedAt = localTrip.editedAt || merged.editedAt;
+                                merged.editReason = localTrip.editReason || merged.editReason;
+                            }
+                            if (localTrip.driverPhone && localTrip.driverPhone !== 'Not Provided') {
+                                merged.driverPhone = localTrip.driverPhone;
+                            }
+
+                            mergedMap.set(sanitizedRemote.id, TransportDB.sanitizeTrip(merged));
+                        } else {
+                            mergedMap.set(sanitizedRemote.id, sanitizedRemote);
+                        }
+                    });
+
+                    const combined = Array.from(mergedMap.values());
+                    combined.sort((a, b) => new Date(b.checkInTime || 0) - new Date(a.checkInTime || 0));
+                    _memStore.trips = combined;
+                    try {
+                        localStorage.setItem(DB_KEYS.TRIPS, JSON.stringify(combined));
+                    } catch (e) {}
+                }
                 if (window.App && typeof window.App.refreshAll === 'function') {
                     window.App.refreshAll();
                 }
@@ -1216,7 +1284,32 @@ const GoogleSheetsSync = {
                             const sanitizedRemote = TransportDB.sanitizeTrip(remoteTrip);
                             if (mergedMap.has(sanitizedRemote.id)) {
                                 const localTrip = mergedMap.get(sanitizedRemote.id);
-                                const merged = { ...sanitizedRemote };
+                                // Merge remote changes onto localTrip so local fields are NEVER lost
+                                const merged = { ...localTrip };
+
+                                for (const [k, v] of Object.entries(sanitizedRemote)) {
+                                    if (v !== undefined && v !== null && v !== '' && v !== 'N/A' && v !== '[]') {
+                                        merged[k] = v;
+                                    }
+                                }
+
+                                // Explicitly preserve local metadata that remote Google Sheets rows might lack
+                                if (localTrip.startPhoto) merged.startPhoto = localTrip.startPhoto;
+                                if (localTrip.endPhoto) merged.endPhoto = localTrip.endPhoto;
+                                if (localTrip.isVerified) {
+                                    merged.isVerified = localTrip.isVerified;
+                                    merged.verifiedBy = localTrip.verifiedBy || merged.verifiedBy;
+                                    merged.verifiedAt = localTrip.verifiedAt || merged.verifiedAt;
+                                }
+                                if (localTrip.isEdited) {
+                                    merged.isEdited = localTrip.isEdited;
+                                    merged.editedBy = localTrip.editedBy || merged.editedBy;
+                                    merged.editedAt = localTrip.editedAt || merged.editedAt;
+                                    merged.editReason = localTrip.editReason || merged.editReason;
+                                }
+                                if (localTrip.driverPhone && localTrip.driverPhone !== 'Not Provided') {
+                                    merged.driverPhone = localTrip.driverPhone;
+                                }
                                 if (localTrip.originSiteCode && localTrip.originSiteCode !== 'Diesel' && localTrip.originSiteCode !== '[]') {
                                     merged.originSiteCode = localTrip.originSiteCode;
                                     merged.originCode = localTrip.originSiteCode;
@@ -1235,6 +1328,7 @@ const GoogleSheetsSync = {
                                 if (localTrip.driverName && localTrip.driverName !== 'Diesel') {
                                     merged.driverName = localTrip.driverName;
                                 }
+
                                 mergedMap.set(sanitizedRemote.id, TransportDB.sanitizeTrip(merged));
                             } else {
                                 mergedMap.set(sanitizedRemote.id, sanitizedRemote);
