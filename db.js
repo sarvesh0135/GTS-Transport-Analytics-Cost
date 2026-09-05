@@ -212,35 +212,70 @@ const TransportDB = {
         this.saveSites(sites);
     },
 
-    // --- GPS GEOLOCATION HELPER ---
+    // --- GPS GEOLOCATION HELPER (Multi-Tier Resilience: GPS -> WiFi -> IP Fallback) ---
     getCurrentGPSLocation: function() {
         return new Promise((resolve, reject) => {
+            const formatSuccess = (lat, lng, accuracy, source = 'GPS') => ({
+                lat: parseFloat(Number(lat).toFixed(6)),
+                lng: parseFloat(Number(lng).toFixed(6)),
+                accuracy: accuracy ? Math.round(accuracy) : 50,
+                source: source,
+                mapsUrl: `https://maps.google.com/?q=${lat},${lng}`,
+                formattedStr: `📍 ${lat}, ${lng} (±${accuracy ? Math.round(accuracy) : 50}m via ${source})`,
+                timestamp: new Date().toISOString()
+            });
+
+            // Fallback: IP-based Geolocation if browser GPS permission is denied or fails
+            const fetchIPLocation = async (errorMsg) => {
+                try {
+                    const resp = await fetch('https://ipapi.co/json/', { timeout: 5000 });
+                    if (resp.ok) {
+                        const data = await resp.json();
+                        if (data && data.latitude && data.longitude) {
+                            resolve(formatSuccess(data.latitude, data.longitude, 1000, `Network IP - ${data.city || 'Location'}`));
+                            return;
+                        }
+                    }
+                } catch (e) {}
+
+                try {
+                    const resp2 = await fetch('https://get.geojs.io/v1/ip/geo.json');
+                    if (resp2.ok) {
+                        const data2 = await resp2.json();
+                        if (data2 && data2.latitude && data2.longitude) {
+                            resolve(formatSuccess(data2.latitude, data2.longitude, 2000, `Network IP - ${data2.city || 'Location'}`));
+                            return;
+                        }
+                    }
+                } catch (e) {}
+
+                reject(new Error(errorMsg || "Unable to acquire location. Please check browser GPS permissions."));
+            };
+
             if (!navigator.geolocation) {
-                reject(new Error("Geolocation API is not supported by your mobile browser."));
+                fetchIPLocation("Geolocation API not supported in browser.");
                 return;
             }
+
+            // Tier 1: Try High Accuracy GPS
             navigator.geolocation.getCurrentPosition(
-                (pos) => {
-                    const lat = parseFloat(pos.coords.latitude.toFixed(6));
-                    const lng = parseFloat(pos.coords.longitude.toFixed(6));
-                    const accuracy = Math.round(pos.coords.accuracy);
-                    resolve({
-                        lat: lat,
-                        lng: lng,
-                        accuracy: accuracy,
-                        mapsUrl: `https://maps.google.com/?q=${lat},${lng}`,
-                        formattedStr: `📍 ${lat}, ${lng} (±${accuracy}m)`,
-                        timestamp: new Date().toISOString()
-                    });
+                (pos) => resolve(formatSuccess(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, 'Satellite GPS')),
+                (err1) => {
+                    console.warn('[GPS] Tier 1 High Accuracy failed, trying Tier 2 Low Power/WiFi:', err1);
+                    // Tier 2: Low power / WiFi / Cell Triangulation
+                    navigator.geolocation.getCurrentPosition(
+                        (pos2) => resolve(formatSuccess(pos2.coords.latitude, pos2.coords.longitude, pos2.coords.accuracy, 'Cell/WiFi GPS')),
+                        (err2) => {
+                            console.warn('[GPS] Tier 2 failed, using IP Geolocation fallback:', err2);
+                            let msg = "GPS permission denied. Please enable location access in mobile browser.";
+                            if (err2.code === 2) msg = "GPS position unavailable.";
+                            else if (err2.code === 3) msg = "GPS request timed out.";
+                            fetchIPLocation(msg);
+                        },
+                        { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+                    );
                 },
-                (err) => {
-                    let msg = "Could not fetch GPS location.";
-                    if (err.code === 1) msg = "GPS permission denied. Please allow location access.";
-                    else if (err.code === 2) msg = "GPS position unavailable.";
-                    else if (err.code === 3) msg = "GPS request timed out.";
-                    reject(new Error(msg));
-                },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+                { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
             );
         });
     },

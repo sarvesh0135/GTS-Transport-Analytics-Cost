@@ -1525,6 +1525,12 @@ const App = {
 
             const isComp = t.status === 'COMPLETED';
 
+            const distNum = parseFloat(t.distance) || 0;
+            const milNum = parseFloat(t.mileage) || 10.0;
+            const rawFuel = parseFloat(t.fuelConsumed);
+            const safeFuelConsumed = (!isNaN(rawFuel) && rawFuel > 0) ? rawFuel : (distNum > 0 && milNum > 0 ? parseFloat((distNum / milNum).toFixed(1)) : 0);
+            const safeFuelUnit = t.fuelUnit || 'Litre';
+
             return `
                 <tr class="border-b border-slate-800/80 hover:bg-slate-800/30 transition text-xs">
                     <td class="py-3.5 px-4 font-mono font-bold text-blue-400">
@@ -1573,7 +1579,7 @@ const App = {
                     </td>
                     <td class="py-3.5 px-4 font-mono">
                         ${isComp ? `
-                            <div class="font-semibold text-slate-200">${t.fuelConsumed} ${t.fuelUnit || 'L'}</div>
+                            <div class="font-semibold text-slate-200">${safeFuelConsumed} ${safeFuelUnit}</div>
                             <div class="text-[10px] text-slate-500">${t.mileage} km/L</div>
                         ` : '-'}
                     </td>
