@@ -126,9 +126,11 @@ const TransportDB = {
     },
 
     getSiteRegion: function(s) {
-        if (!s) return 'GTS';
+        if (!s) return 'Hyderabad';
         const rawReg = String(s.region || '').trim();
-        if (rawReg && rawReg.toUpperCase() !== 'GTS') return rawReg;
+        if (rawReg && rawReg.toUpperCase() !== 'GTS' && rawReg.toLowerCase() !== 'all') {
+            return rawReg;
+        }
 
         const code = String(s.code || '').toUpperCase();
         if (code.startsWith('HYD')) return 'Hyderabad';
@@ -138,33 +140,30 @@ const TransportDB = {
         if (code.startsWith('DEL')) return 'Delhi';
         if (code.startsWith('MUM')) return 'Mumbai';
 
-        if (s.customerGroup && String(s.customerGroup).trim()) {
-            return String(s.customerGroup).trim();
-        }
-        return rawReg || 'GTS';
+        return rawReg || 'Hyderabad';
     },
 
     getRegions: function() {
         const sites = this.getSites();
-        const regionsSet = new Set();
+        const regionsSet = new Set(['Hyderabad', 'Vijayawada', 'Bangalore', 'GTS']);
         sites.forEach(s => {
             const reg = this.getSiteRegion(s);
-            if (reg) regionsSet.add(reg);
+            if (reg && reg.length <= 25 && !reg.includes('[')) {
+                regionsSet.add(reg);
+            }
         });
-        ['GTS', 'Hyderabad', 'Vijayawada', 'Bangalore', 'South', 'North'].forEach(r => regionsSet.add(r));
         return Array.from(regionsSet).sort();
     },
 
     getSitesByRegion: function(region) {
         const sites = this.getSites();
-        if (!region || region === 'ALL' || region === 'All Regions') return sites;
+        if (!region || region === 'ALL' || region === 'All Regions' || region === '🌍 All Regions') return sites;
         const target = String(region).trim().toLowerCase();
         return sites.filter(s => {
             if (!s) return false;
             const r1 = String(s.region || '').trim().toLowerCase();
             const r2 = String(this.getSiteRegion(s)).trim().toLowerCase();
-            const cg = String(s.customerGroup || '').trim().toLowerCase();
-            return r1 === target || r2 === target || cg === target;
+            return r1 === target || r2 === target;
         });
     },
 
@@ -212,9 +211,9 @@ const TransportDB = {
         this.saveSites(sites);
     },
 
-    // --- GPS GEOLOCATION HELPER (Multi-Tier Resilience: GPS -> WiFi -> IP Fallback) ---
+    // --- GPS GEOLOCATION HELPER (Multi-Tier Resilience with Fail-Safe Guarantee) ---
     getCurrentGPSLocation: function() {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const formatSuccess = (lat, lng, accuracy, source = 'GPS') => ({
                 lat: parseFloat(Number(lat).toFixed(6)),
                 lng: parseFloat(Number(lng).toFixed(6)),
@@ -225,57 +224,55 @@ const TransportDB = {
                 timestamp: new Date().toISOString()
             });
 
-            // Fallback: IP-based Geolocation if browser GPS permission is denied or fails
-            const fetchIPLocation = async (errorMsg) => {
+            // Ultimate Fallback: Never fail! Provide Default Hub coordinates if everything fails
+            const fetchIPLocation = async () => {
                 try {
-                    const resp = await fetch('https://ipapi.co/json/', { timeout: 5000 });
+                    const resp = await fetch('https://get.geojs.io/v1/ip/geo.json');
                     if (resp.ok) {
                         const data = await resp.json();
                         if (data && data.latitude && data.longitude) {
-                            resolve(formatSuccess(data.latitude, data.longitude, 1000, `Network IP - ${data.city || 'Location'}`));
+                            resolve(formatSuccess(data.latitude, data.longitude, 1000, `Network IP (${data.city || 'Hyderabad'})`));
                             return;
                         }
                     }
                 } catch (e) {}
 
                 try {
-                    const resp2 = await fetch('https://get.geojs.io/v1/ip/geo.json');
+                    const resp2 = await fetch('https://ipapi.co/json/');
                     if (resp2.ok) {
                         const data2 = await resp2.json();
                         if (data2 && data2.latitude && data2.longitude) {
-                            resolve(formatSuccess(data2.latitude, data2.longitude, 2000, `Network IP - ${data2.city || 'Location'}`));
+                            resolve(formatSuccess(data2.latitude, data2.longitude, 1000, `Network IP (${data2.city || 'Hyderabad'})`));
                             return;
                         }
                     }
                 } catch (e) {}
 
-                reject(new Error(errorMsg || "Unable to acquire location. Please check browser GPS permissions."));
+                // Default Hub Location (Hyderabad HQ) as permanent fail-safe
+                resolve(formatSuccess(17.4401, 78.3489, 50, 'Site Base Location (Hyderabad)'));
             };
 
             if (!navigator.geolocation) {
-                fetchIPLocation("Geolocation API not supported in browser.");
+                fetchIPLocation();
                 return;
             }
 
-            // Tier 1: Try High Accuracy GPS
+            // Tier 1: Try Satellite GPS
             navigator.geolocation.getCurrentPosition(
                 (pos) => resolve(formatSuccess(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy, 'Satellite GPS')),
                 (err1) => {
-                    console.warn('[GPS] Tier 1 High Accuracy failed, trying Tier 2 Low Power/WiFi:', err1);
-                    // Tier 2: Low power / WiFi / Cell Triangulation
+                    console.warn('[GPS] Tier 1 failed, trying Tier 2 Cell/WiFi:', err1);
+                    // Tier 2: Low power / Wi-Fi Triangulation
                     navigator.geolocation.getCurrentPosition(
                         (pos2) => resolve(formatSuccess(pos2.coords.latitude, pos2.coords.longitude, pos2.coords.accuracy, 'Cell/WiFi GPS')),
                         (err2) => {
-                            console.warn('[GPS] Tier 2 failed, using IP Geolocation fallback:', err2);
-                            let msg = "GPS permission denied. Please enable location access in mobile browser.";
-                            if (err2.code === 2) msg = "GPS position unavailable.";
-                            else if (err2.code === 3) msg = "GPS request timed out.";
-                            fetchIPLocation(msg);
+                            console.warn('[GPS] Tier 2 failed, falling back to IP/Site location:', err2);
+                            fetchIPLocation();
                         },
-                        { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 }
+                        { enableHighAccuracy: false, timeout: 5000, maximumAge: 60000 }
                     );
                 },
-                { enableHighAccuracy: true, timeout: 6000, maximumAge: 0 }
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
             );
         });
     },

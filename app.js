@@ -412,20 +412,32 @@ const App = {
         const drivers = TransportDB.getDrivers();
         const vehicles = TransportDB.getVehicles();
 
-        // 1. Driver Dropdown
+        // Preserve current active selections so background sync never wipes form data
         const driverSelect = document.getElementById('checkinDriverSelect');
+        const vehSelect = document.getElementById('checkinVehicleSelect');
+        const originSelect = document.getElementById('checkinOriginSelect');
+        const destSelect = document.getElementById('checkoutDestSelect');
+
+        const savedDriverVal = driverSelect ? driverSelect.value : '';
+        const savedVehVal = vehSelect ? vehSelect.value : '';
+        const savedOriginVal = originSelect ? originSelect.value : '';
+        const savedDestVal = destSelect ? destSelect.value : '';
+
+        // 1. Driver Dropdown
         if (driverSelect) {
             let options = '<option value="">-- Select Driver --</option>';
-            options += '<option value="__NEW__">➕ Add New Driver (Enter Name & Mobile)</option>';
+            options += '<option value="__NEW__">➕ Add New Driver (Enter Name & Phone)</option>';
             drivers.forEach(d => {
                 const phoneStr = d.phone && d.phone !== 'Not Provided' ? ` (${d.phone})` : '';
                 options += `<option value="${d.name}" data-phone="${d.phone || ''}">${d.name}${phoneStr}</option>`;
             });
             driverSelect.innerHTML = options;
+            if (savedDriverVal && Array.from(driverSelect.options).some(o => o.value === savedDriverVal)) {
+                driverSelect.value = savedDriverVal;
+            }
         }
 
         // 2. Vehicle Dropdown
-        const vehSelect = document.getElementById('checkinVehicleSelect');
         if (vehSelect) {
             let options = '<option value="">-- Select Vehicle --</option>';
             options += '<option value="__NEW__">➕ Add New Vehicle</option>';
@@ -433,17 +445,22 @@ const App = {
                 options += `<option value="${v.plate}" data-fuel="${v.fuelType}" data-mileage="${v.mileage}">${v.plate} (${v.fuelType} · ${v.mileage} km/L)</option>`;
             });
             vehSelect.innerHTML = options;
+            if (savedVehVal && Array.from(vehSelect.options).some(o => o.value === savedVehVal)) {
+                vehSelect.value = savedVehVal;
+            }
         }
 
         // 3. Origin Sites Dropdown (respects region filter)
         const originRegion = this.selectedCheckinRegion || 'ALL';
         const filteredOriginSites = originRegion !== 'ALL' ? TransportDB.getSitesByRegion(originRegion) : sites;
-        const originSelect = document.getElementById('checkinOriginSelect');
         if (originSelect) {
             originSelect.innerHTML =
                 `<option value="">-- Search / Select Departure Site (${filteredOriginSites.length} Sites Available) --</option>` +
                 `<option value="__NEW_SITE__" class="font-bold text-blue-400 bg-blue-950/40">➕ + Add New Site (Not in List)</option>` +
                 filteredOriginSites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+            if (savedOriginVal && Array.from(originSelect.options).some(o => o.value === savedOriginVal)) {
+                originSelect.value = savedOriginVal;
+            }
         }
         const originBadge = document.getElementById('originSiteCountBadge');
         if (originBadge) originBadge.textContent = `${filteredOriginSites.length} Sites`;
@@ -451,12 +468,14 @@ const App = {
         // 4. Destination Sites Dropdown (respects region filter)
         const destRegion = this.selectedCheckoutRegion || 'ALL';
         const filteredDestSites = destRegion !== 'ALL' ? TransportDB.getSitesByRegion(destRegion) : sites;
-        const destSelect = document.getElementById('checkoutDestSelect');
         if (destSelect) {
             destSelect.innerHTML =
                 `<option value="">-- Search / Select Arrival Site (${filteredDestSites.length} Sites Available) --</option>` +
                 `<option value="__NEW_SITE__" class="font-bold text-emerald-400 bg-emerald-950/40">➕ + Add New Site (Not in List)</option>` +
                 filteredDestSites.map(s => `<option value="${s.code}">[${s.code}] ${s.name} (Supervisor: ${s.supervisor || 'Unassigned'})</option>`).join('');
+            if (savedDestVal && Array.from(destSelect.options).some(o => o.value === savedDestVal)) {
+                destSelect.value = savedDestVal;
+            }
         }
         const destBadge = document.getElementById('destSiteCountBadge');
         if (destBadge) destBadge.textContent = `${filteredDestSites.length} Sites`;
@@ -465,10 +484,14 @@ const App = {
         const fOrigin = document.getElementById('filterOrigin');
         const fDest = document.getElementById('filterDest');
         if (fOrigin) {
+            const savedFOrg = fOrigin.value;
             fOrigin.innerHTML = '<option value="ALL">All Origin Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
+            if (savedFOrg) fOrigin.value = savedFOrg;
         }
         if (fDest) {
+            const savedFDst = fDest.value;
             fDest.innerHTML = '<option value="ALL">All Destination Sites</option>' + sites.map(s => `<option value="${s.code}">[${s.code}] ${s.name}</option>`).join('');
+            if (savedFDst) fDest.value = savedFDst;
         }
 
         // 6. Region Filter Dropdowns
@@ -786,11 +809,15 @@ const App = {
         const checkinRegionSel = document.getElementById('checkinRegionFilter');
         const checkoutRegionSel = document.getElementById('checkoutRegionFilter');
 
-        [checkinRegionSel, checkoutRegionSel].forEach((sel, idx) => {
+        [checkinRegionSel, checkoutRegionSel].forEach((sel) => {
             if (!sel) return;
+            const currentVal = sel.value;
             sel.innerHTML =
                 '<option value="ALL">🌍 All Regions</option>' +
-                regions.map(r => `<option value="${r}">${r}</option>`).join('');
+                regions.filter(r => r && String(r).trim() !== '').map(r => `<option value="${r}">${r}</option>`).join('');
+            if (currentVal && Array.from(sel.options).some(o => o.value === currentVal)) {
+                sel.value = currentVal;
+            }
         });
     },
 

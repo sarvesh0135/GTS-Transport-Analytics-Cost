@@ -285,7 +285,7 @@
                         <!-- Driver Selection -->
                         <div>
                             <label class="block font-semibold text-slate-300 mb-1.5">Driver Name &amp; Mobile <span class="text-rose-400">*</span></label>
-                            <select id="checkinDriverSelect" onchange="App.handleDriverSelectChange(this)" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-medium focus:outline-none focus:border-blue-500">
+                            <select id="checkinDriverSelect" onchange="App.handleDriverSelectChange(this)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-medium focus:outline-none focus:border-blue-500">
                                 <option value="">-- Select Driver --</option>
                                 <option value="__NEW__">➕ Add New Driver (Enter Name &amp; Phone)</option>
                             </select>
@@ -298,7 +298,7 @@
                         <!-- Vehicle Select Dropdown -->
                         <div>
                             <label class="block font-semibold text-slate-300 mb-1.5">Vehicle Number (Plate No) <span class="text-rose-400">*</span></label>
-                            <select id="checkinVehicleSelect" onchange="App.handleVehicleSelectChange(this)" required
+                            <select id="checkinVehicleSelect" onchange="App.handleVehicleSelectChange(this)"
                                 class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-white font-mono font-bold focus:outline-none focus:border-blue-500">
                                 <option value="">-- Select Vehicle --</option>
                                 <option value="__NEW__">➕ Add New Vehicle</option>
@@ -366,7 +366,7 @@
                                 <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-500 text-xs"></i>
                                 <input type="text" id="checkinOriginSearch" oninput="App.filterOriginSites(this.value)" placeholder="🔍 Type to search site name or code (e.g. Apple, HYD001)..." class="w-full bg-slate-950 border border-slate-800 focus:border-blue-500 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition">
                             </div>
-                            <select id="checkinOriginSelect" required onchange="App.handleOriginSiteSelectChange(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-blue-500">
+                            <select id="checkinOriginSelect" onchange="App.handleOriginSiteSelectChange(this.value)" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-white focus:outline-none focus:border-blue-500">
                                 <option value="">-- Search / Select Departure Site (314 Sites Available) --</option>
                                 <option value="__NEW_SITE__" class="font-bold text-blue-400 bg-blue-950/40">➕ + Add New Site (Not in List)</option>
                                 <option value="HYD001">[HYD001] Apple Waverock (Supervisor: Eshwar Megawath)</option>
