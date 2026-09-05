@@ -53,7 +53,6 @@ const App = {
         this.renderDriversList();
         this.renderFuelRatesForm();
         this.renderActivePinDisplay();
-        this.renderFirebaseConfigForm();
         this.renderGoogleSheetsConfigForm();
         this.updateAutoSiteCodeSuggestion();
         this.startTimer();
@@ -379,7 +378,6 @@ const App = {
             this.renderVehicleFleet();
             this.renderDriversList();
             this.renderActivePinDisplay();
-            this.renderFirebaseConfigForm();
         }
     },
 
@@ -2104,78 +2102,7 @@ const App = {
         this.handleFuelTypeChange(document.querySelector('input[name="checkinFuelType"]:checked')?.value || 'Diesel');
     },
 
-    // --- FIREBASE CLOUD SYNC HANDLERS ---
-    handleSaveFirebaseConfig: function() {
-        const rawJson = document.getElementById('firebaseConfigJson')?.value.trim();
-        if (!rawJson) {
-            this.showNotification('Please paste your Firebase configuration object.', 'error');
-            return;
-        }
 
-        try {
-            // Support both JSON format and direct JS object format
-            let config;
-            try {
-                config = JSON.parse(rawJson);
-            } catch (e) {
-                // Try evaluating sanitized object
-                const sanitized = rawJson.replace(/([a-zA-Z0-9_]+)\s*:/g, '"$1":').replace(/'/g, '"');
-                config = JSON.parse(sanitized);
-            }
-
-            if (!config.apiKey || !config.projectId) {
-                throw new Error("Invalid config. 'apiKey' and 'projectId' are required.");
-            }
-
-            const success = FirebaseSync.saveConfig(config);
-            if (success) {
-                this.renderFirebaseConfigForm();
-                this.showNotification('🟢 Connected to Firebase Cloud! Multi-device sync is now active.', 'success');
-            } else {
-                throw new Error("Could not initialize Firebase with provided credentials.");
-            }
-        } catch (err) {
-            this.showNotification(`Firebase connection failed: ${err.message}`, 'error');
-        }
-    },
-
-    handleMigrateToCloud: async function() {
-        try {
-            this.showNotification('Uploading local trips to Firebase Cloud...', 'info');
-            const count = await FirebaseSync.migrateLocalToCloud();
-            this.showNotification(`✓ Successfully synced ${count} trips to Cloud!`, 'success');
-        } catch (e) {
-            this.showNotification(`Cloud sync failed: ${e.message}`, 'error');
-        }
-    },
-
-    handleClearFirebaseConfig: function() {
-        if (confirm("Disconnect from Firebase Cloud and revert to local storage?")) {
-            FirebaseSync.clearConfig();
-            this.renderFirebaseConfigForm();
-            this.showNotification('Disconnected from Cloud. Now in Local Storage mode.', 'info');
-        }
-    },
-
-    renderFirebaseConfigForm: function() {
-        const config = FirebaseSync.getConfig();
-        const textarea = document.getElementById('firebaseConfigJson');
-        const statusLabel = document.getElementById('fbSyncStatusLabel');
-
-        if (textarea && config) {
-            textarea.value = JSON.stringify(config, null, 2);
-        }
-
-        if (statusLabel) {
-            if (FirebaseSync.isInitialized) {
-                statusLabel.innerHTML = '<span class="text-emerald-400 font-bold">🟢 Connected</span>';
-            } else {
-                statusLabel.innerHTML = '<span class="text-slate-500 font-bold">⚪ Not Connected</span>';
-            }
-        }
-
-        FirebaseSync.updateSyncBadge(FirebaseSync.isInitialized);
-    },
 
     // --- GOOGLE SHEETS SYNC HANDLERS ---
     openGoogleSheetsModal: function() {
